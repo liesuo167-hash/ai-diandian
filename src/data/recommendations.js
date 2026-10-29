@@ -1,11 +1,11 @@
 // 原始 Figma IMAGE fills，文件未经修改。
-export const SCENE = './assets/figma/a25063dc1590114d04b2432fc040241452d833d8.png';
+export const SCENE = './assets/figma/a25063dc1590114d04b2432fc040241452d833d8.webp';
 export const REFERENCES = [
-'./assets/figma/93c511b55e90d764021246ecf737bc75d7af6573.png',
-'./assets/figma/1760924c1e698057b17e386768a5a594ad98cdba.png',
-'./assets/figma/033ad0bd8635a80fd1d8065e8ae72c3448569e6a.png',
-'./assets/figma/f104adb8c7ba9dfeeb24fd941594c2b9f5ed19ae.png',
-'./assets/figma/ee8e62bea196096ee692d8474b3a177569b1a82e.png',
+'./assets/figma/93c511b55e90d764021246ecf737bc75d7af6573.webp',
+'./assets/figma/1760924c1e698057b17e386768a5a594ad98cdba.webp',
+'./assets/figma/033ad0bd8635a80fd1d8065e8ae72c3448569e6a.webp',
+'./assets/figma/f104adb8c7ba9dfeeb24fd941594c2b9f5ed19ae.webp',
+'./assets/figma/ee8e62bea196096ee692d8474b3a177569b1a82e.webp',
 ];
 export const CATEGORIES = [
 { id:'smart', label:'智能推荐' }, { id:'popular', label:'热门' },
