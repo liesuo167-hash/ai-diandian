@@ -1,0 +1,10 @@
+:root {
+ color-scheme:dark;
+ --color-bg:#101413; --panel:#1a1a1a; --panel-raised:#282828;
+ --text:#ffffffe5; --muted:#ffffff99; --subtle:#8d9390;
+ --mint:#5afce2; --cyan:#1bc7f4;
+ --ai-gradient:linear-gradient(135deg,#effff9 0%,#5afce2 38%,#30dded 65%,#0fbaf9 100%);
+ --bubble-gradient:linear-gradient(108deg,#d6fef554 0%,#4af0e659 28%,#1bc7f459 100%);
+ --safe-top:env(safe-area-inset-top,0px); --safe-bottom:env(safe-area-inset-bottom,0px);
+ --font:"Alibaba PuHuiTi 2.0","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+}

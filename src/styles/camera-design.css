@@ -1,0 +1,183 @@
+/* Main camera geometry comes ONLY from src/design/camera-layout.js.
+   --du is one design pixel in CSS pixels. Hit areas may extend beyond artwork. */
+body {
+  display: grid;
+  place-items: center;
+  background: #000;
+  gap: 0;
+}
+.camera-app {
+  width: min(100vw, calc(100dvh * 264.3290710449219 / 576.4695434570312));
+  height: auto;
+  aspect-ratio: 264.3290710449219 / 576.4695434570312;
+  max-width: none;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  flex: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: #000;
+  --du: 1px;
+  --design-scale: 1;
+  --bottom-lift: max(0px, calc(var(--safe-bottom) - var(--bottom-reserve, 0px)));
+}
+.camera-ui, .viewfinder, .main-camera-design {
+  position: absolute;
+  inset: 0;
+}
+.viewfinder { overflow: hidden; }
+.scene-frame {
+  position: absolute;
+  left: calc(var(--x) * var(--du));
+  top: calc(var(--y) * var(--du));
+  width: calc(var(--w) * var(--du));
+  height: calc(var(--h) * var(--du));
+  overflow: hidden;
+}
+#scene-frame-outer { border-radius: calc(13.660417556762695 * var(--du)); }
+#scene-frame-inner { border-radius: calc(13.796182632446289 * var(--du)); }
+.scene, .camera-video {
+  position: absolute;
+  left: calc(var(--x) * var(--du));
+  top: calc(var(--y) * var(--du));
+  width: calc(var(--w) * var(--du));
+  height: calc(var(--h) * var(--du));
+  right: auto;
+  bottom: auto;
+  object-fit: cover;
+  object-position: center;
+  transition: filter .2s, transform 1.2s;
+}
+.scene.generated-scene { transform: scale(1.48); }
+.design-box {
+  display: block;
+  position: absolute;
+  left: calc(var(--x) * var(--du));
+  top: calc(var(--y) * var(--du));
+  width: calc(var(--w) * var(--du));
+  height: calc(var(--h) * var(--du));
+}
+.design-hit {
+  position: absolute;
+  --center-x: calc(var(--cx) * var(--du));
+  --center-y: calc(var(--cy) * var(--du));
+  --hit-w: max(44px, calc(var(--w) * var(--du)));
+  --hit-h: max(44px, calc(var(--h) * var(--du)));
+  --hit-left: clamp(0px, calc(var(--center-x) - var(--hit-w) / 2), calc(var(--canvas-w) - var(--hit-w)));
+  --hit-top: clamp(0px, calc(var(--center-y) - var(--hit-h) / 2), calc(var(--canvas-h) - var(--hit-h)));
+  left: var(--hit-left);
+  top: var(--hit-top);
+  width: var(--hit-w);
+  height: var(--hit-h);
+  padding: 0;
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  transform: none;
+}
+.design-hit:active:not(:disabled) { transform: none; }
+.design-hit > .design-art {
+  left: calc(var(--center-x) - var(--hit-left) + var(--x) * var(--du));
+  top: calc(var(--center-y) - var(--hit-top) + var(--y) * var(--du));
+  pointer-events: none;
+}
+.design-art img, .design-entry-art img, .design-bubble-art img {
+  position: absolute;
+  left: 0;
+  top: 0;
+  max-width: none;
+  transform: scale(var(--design-scale));
+  transform-origin: top left;
+}
+/* Native SVG dimensions are untouched: each asset is scaled at its own slot. */
+.design-header, .design-tools { position: static; }
+.design-header .design-hit { --center-y: max(calc(var(--cy) * var(--du)), calc(var(--safe-top) + 22px)); }
+.design-label {
+  font-family: var(--font);
+  font-size: calc(var(--font-size) * var(--du));
+  line-height: 1.43;
+  letter-spacing: 0;
+  font-weight: 600;
+  color: #ffffffe5;
+  white-space: nowrap;
+  text-align: left;
+  pointer-events: none;
+}
+.design-prompt > .design-label { font-weight: 500; }
+.design-prompt { position: static; }
+.design-prompt .design-bubble-art { pointer-events: none; }
+.design-enable { z-index: 6; }
+.design-enable-label { z-index: 7; line-height: 1.0625; }
+.design-entry {
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  min-width: 44px;
+  min-height: 44px;
+  z-index: 6;
+}
+.design-entry-art { pointer-events: none; }
+.design-shutter {
+  padding: 0;
+  background: none;
+  border: calc(2.732083559036255 * var(--du)) solid #ffffffe5;
+  border-radius: 50%;
+  z-index: 6;
+}
+.design-shutter-core {
+  /* A border does not move the child coordinate origin. Compensate for it here. */
+  left: calc((var(--x) - 2.732083559036255) * var(--du));
+  top: calc((var(--y) - 2.732083559036255) * var(--du));
+  background: #ffffffe5;
+  border-radius: 50%;
+}
+.design-shutter.live-shutter .design-shutter-core { background: #f55a61; }
+.design-shutter.is-live .design-shutter-core { border-radius: 8%; transform: scale(.55); }
+.design-modes { position: absolute; inset: 0; pointer-events: none; transform: translateY(calc(-1 * var(--bottom-lift))); }
+.design-mode { font-size: calc(10.92833423614502 * var(--du)); font-weight: 600; color: #ffffffe5; pointer-events: auto; z-index: 6; }
+.design-mode-indicator { background: #ffffffe5; border-radius: calc(1.039205551147461 * var(--du)); }
+.design-assistant-dynamic { position: absolute; left: calc(var(--x) * var(--du)); top: calc(var(--y) * var(--du)); max-width: 85%; width: max-content; }
+.design-assistant-dynamic .assistant-area { margin: 0; min-height: 0; }
+.design-assistant-dynamic .assistant-bubble { font-weight: 500; }
+@media (prefers-reduced-motion: reduce) {
+  .scene, .camera-video { transition: none; }
+}
+
+.design-mode { display: grid; place-items: center; line-height: calc(15 * var(--du)); }
+.design-mode > span { display: block; height: calc(15 * var(--du)); line-height: calc(15 * var(--du)); }
+
+/* Scanning is the same camera view, with its own Figma 19:207 geometry. */
+.scan-layer { position:absolute; inset:0; pointer-events:none; }
+.design-scan-gradient img, .design-scan-points img {
+ position:absolute; max-width:none; transform:scale(var(--design-scale)); transform-origin:top left;
+}
+.design-scan-points img {
+ /* The Figma SVG export includes the source layer-blur outside the group bounds. */
+ left:calc(-4.166427135467529 * var(--du)); top:calc(-4.166427135467529 * var(--du));
+}
+.design-scanning-prompt { position:static; }
+.design-scanning-prompt .design-bubble-art { pointer-events:none; }
+.design-scanning-prompt .scan-label { font-weight:500; }
+.design-scanning-prompt [data-design="scanProgress"] { font-variant-numeric:tabular-nums; }
+.main-camera-design[data-design-stage="scanning"] button:disabled { opacity:1; }
+
+/* Animate the original Figma gradient itself; no separate scanning line. */
+.design-scan-gradient { overflow:hidden; }
+#app[data-stage="scanning"] .design-scan-gradient img {
+ animation:scan-gradient-flow 2.2s ease-in-out infinite;
+}
+@keyframes scan-gradient-flow {
+ 0% { top:-100%; opacity:0; }
+ 15% { opacity:1; }
+ 75% { top:0; opacity:1; }
+ 100% { top:0; opacity:0; }
+}
+@media (prefers-reduced-motion:reduce) {
+ #app[data-stage="scanning"] .design-scan-gradient img { animation:none; top:0; opacity:.7; }
+}
+
+.design-status { position:absolute; left:calc(var(--status-x) * var(--du)); top:var(--safe-top,0px); pointer-events:none; z-index:9; }
+.design-status img { position:absolute; max-width:none; transform:scale(var(--design-scale)); transform-origin:top left; }

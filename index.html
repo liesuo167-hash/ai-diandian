@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#111918" />
+<meta name="description" content="AI 点点，来自实际 Figma 设计的移动端构图辅助交互 Demo。" />
+<title>AI 点点 · 把这一刻拍好</title>
+<link rel="icon" href="./assets/icons/19-98.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="./src/styles/tokens.css" />
+<link rel="stylesheet" href="./src/styles/app.css" />
+<link rel="stylesheet" href="./src/styles/camera-design.css" />
+<link rel="stylesheet" href="./src/styles/assist-design.css" />
+<link rel="preload" href="./assets/figma/a25063dc1590114d04b2432fc040241452d833d8.png" as="image" />
+<script type="module" src="./src/entry.js"></script>
+<link rel="stylesheet" href="./src/styles/video-editor.css" />
+</head>
+<body>
+<main id="app" class="camera-app" aria-label="AI 点点拍摄 Demo">
+<div id="viewfinder" class="viewfinder">
+<div id="scene-frame-outer" class="scene-frame"><div id="scene-frame-inner" class="scene-frame"><img id="scene" class="scene" src="./assets/figma/a25063dc1590114d04b2432fc040241452d833d8.png" alt="预置取景画面：向日葵花田中的白裙人物" />
+<video id="camera-video" class="camera-video" autoplay muted playsinline hidden></video>
+</div></div>
+<div id="guide-layer" class="guide-layer" aria-hidden="true"></div>
+<div id="scan-layer" class="scan-layer" aria-hidden="true" hidden></div>
+</div>
+<div id="ui" class="camera-ui"></div>
+<div id="sheet-root"></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<div id="flash" class="capture-flash" hidden></div>
+</main>
+<noscript>此交互 Demo 需要启用 JavaScript。</noscript>
+</body>
+</html>
