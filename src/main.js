@@ -9,6 +9,8 @@ import { createCameraController } from './services/camera.js';
 import { capturePhoto } from './services/capture.js';
 import { ASSIST_DESIGNS } from './design/assist-layouts.js';
 import { updateAlignmentDirection } from './components/alignment-direction.js';
+import { preload } from './services/asset-ready.js';
+import { collectStageAssets, warmStages } from './services/stage-assets.js';
 
 const app=document.querySelector('#app'),ui=document.querySelector('#ui'),sheetRoot=document.querySelector('#sheet-root');
 const scene=document.querySelector('#scene'),video=document.querySelector('#camera-video'),guide=document.querySelector('#guide-layer');
@@ -41,24 +43,46 @@ function renderScanProgress(){
 function reconcileEffects(prev){
  if(prev.stage!==state.stage){
   stageToken++;clearInterval(stageInterval);clearInterval(alignInterval);alignInterval=null;
-  if(['scanning','generating'].includes(state.stage)){
-   const token=stageToken,stage=state.stage,start=performance.now(),duration=stage==='scanning'?TIMING.scan:TIMING.generate;
-   stageInterval=setInterval(()=>{
-    if(token!==stageToken)return;
-    const value=Math.floor((performance.now()-start)/duration*100);
-    if(value>=100){
-     clearInterval(stageInterval);
-     dispatch({type:stage==='scanning'?'SCAN_COMPLETE':'GENERATED'});
-     if(stage==='generating')toast('辅助已应用，可以拍下这一刻了');
-    }else dispatch({type:'PROGRESS',value});
-   },80);
-  }
+  if(['scanning','generating'].includes(state.stage))runStageTimer(stageToken,state.stage);
  }
  if(prev.countdown!==null&&state.countdown===null){clearInterval(countdownInterval);countdownInterval=null;}
  if(prev.live!==state.live){
   clearInterval(liveInterval);
   if(state.live){liveStarted=Date.now();updateLiveClock();liveInterval=setInterval(updateLiveClock,1000);}
  }
+}
+
+/**
+ * 自动推进：先把目标阶段要用到的资源全部解码完，再开始计时。
+ * 定时器只认时间、不认资源；不预取的话，下一屏图片还没解码就跳过去了。
+ */
+async function runStageTimer(token,stage){
+ const duration=stage==='scanning'?TIMING.scan:TIMING.generate;
+ const event={type:stage==='scanning'?'SCAN_COMPLETE':'GENERATED'};
+ // 要预取哪些资源取决于跳转后的状态，先推演出目标状态
+ const target=transition(state,event);
+ await preload(new Set([...collectStageAssets(stage,state),...collectStageAssets(target.stage,target)])).catch(()=>{});
+ if(token!==stageToken)return;   // 等待期间用户已切走，这次推进作废
+ const start=performance.now();
+ stageInterval=setInterval(()=>{
+  if(token!==stageToken)return;
+  const value=Math.floor((performance.now()-start)/duration*100);
+  if(value>=100){
+   clearInterval(stageInterval);
+   dispatch(event);
+   if(stage==='generating')toast('辅助已应用，可以拍下这一刻了');
+  }else dispatch({type:'PROGRESS',value});
+ },80);
+}
+
+/** 程序化跳转的统一入口：等目标阶段资源就绪后再 dispatch，且只执行最后一次请求。 */
+let readyToken=0;
+async function dispatchWhenReady(event){
+ const token=++readyToken;
+ const target=transition(state,event);
+ await preload(collectStageAssets(target.stage,target)).catch(()=>{});
+ if(token!==readyToken)return;
+ dispatch(event);
 }
 function updateLiveClock(){
  const time=document.querySelector('#live-time');if(!time)return;
@@ -114,8 +138,13 @@ function back(){
  if(state.sheet==='source'&&media.pending)camera.stop('已取消相机请求，继续使用预置画面。');
  dispatch({type:'BACK'});
 }
-function simulateAlignment(){
+async function simulateAlignment(){
  if(alignInterval||state.stage!=='aligning')return;
+ const token=stageToken;
+ // 对齐动画走完紧接着就是生成页，先把生成页要用的资源解码掉再开始动画
+ const target=transition(state,{type:'ALIGNED'});
+ await preload(new Set([...collectStageAssets(state.stage,state),...collectStageAssets(target.stage,target)])).catch(()=>{});
+ if(token!==stageToken||alignInterval||state.stage!=='aligning')return;
  const start=performance.now();
  alignInterval=setInterval(()=>{
   if(state.stage!=='aligning'){clearInterval(alignInterval);alignInterval=null;return;}
@@ -143,7 +172,7 @@ function bindAlignment(){
    updateAlignmentDirection(ui,app,{x,y},ASSIST_DESIGNS.aligning);
    moveAlignmentScene({x,y});
    const distance=Math.hypot(e.clientX-(target.left+target.width/2),e.clientY-(target.top+target.height/2));
-   if(distance<Math.max(12,target.width/2)){dot.removeEventListener('pointermove',move);if(state.stage==='recommendations')dispatch({type:'APPLY'});dispatch({type:'ALIGNED'});}
+   if(distance<Math.max(12,target.width/2)){dot.removeEventListener('pointermove',move);if(state.stage==='recommendations')dispatch({type:'APPLY'});dispatchWhenReady({type:'ALIGNED'});}
   };
   dot.addEventListener('pointermove',move);
   dot.addEventListener('pointerup',()=>{dot.removeEventListener('pointermove',move);},{once:true});
@@ -242,4 +271,5 @@ document.addEventListener('keydown',event=>{
 // Do not keep the user's camera active after they leave the page.
 window.addEventListener('pagehide',()=>{stageToken++;camera.stop();clearInterval(stageInterval);clearInterval(alignInterval);clearInterval(countdownInterval);clearInterval(liveInterval);state={...state,stage:state.applied?'ready':'idle',progress:0,alignment:0,countdown:null,live:false,sheet:null};render();});
 render();
-
+// 首屏先出画面；其余阶段在空闲时预热，后续自动跳转就不必再等资源了。
+warmStages(state.stage,state);

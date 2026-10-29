@@ -2,6 +2,7 @@ import {EDITOR_LAYOUTS} from '../design/editor-layouts.js';
 import {EDITOR_ASSET_SIZES} from '../design/editor-asset-sizes.js';
 import {EDITOR_AVATAR_ASSETS} from '../design/editor-avatar-assets.js';
 import {EDITOR_STAGES,initialEditorState,editorTransition} from '../state/video-editor-machine.js';
+import {preload} from '../services/asset-ready.js';
 const escape=s=>String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;');
 const rgba=(c,a=1)=>'rgba('+[c.r,c.g,c.b].map(v=>Math.round(v*255)).join(',')+','+(c.a??a)+')';
 function paint(p){
@@ -67,6 +68,17 @@ export function renderVideoEditor(s){
  if(s.view==='done'&&text('已完成'))controls.push(hit(text('已完成'),'OPEN_AI','查看优化结果'));
  return '<section class="video-editor" data-editor-view="'+s.view+'" data-editor-frame="'+frame.id+'" aria-label="视频编辑 Demo" style="--ew:'+frame.width+';--eh:'+frame.height+'">'+frame.children.map(n=>artwork(previewNode(n))).join('')+controls.join('')+'<span class="editor-sr-status" role="status">'+(s.job==='running'?'正在本地模拟优化封面':s.job==='done'?'封面优化已完成':'视频编辑')+'</span></section>';
 }
+/** 收集某个视图渲染时需要的所有素材（普通图层 + 头像整组导出件）。 */
+function collectViewAssets(view){
+ const frame=EDITOR_LAYOUTS.find(f=>f.name===EDITOR_STAGES[view]);if(!frame)return [];
+ const urls=new Set();
+ (function walk(n){
+  if(n.asset)urls.add('./assets/editor/'+n.id.replace(':','-')+'.svg');
+  if(EDITOR_AVATAR_ASSETS[n.id])urls.add('./assets/editor/avatars/'+n.id.replace(':','-')+'.svg');
+  (n.children||[]).forEach(walk);
+ })(frame);
+ return urls;
+}
 export function createVideoEditor({onExit}){
  let state=initialEditorState(),timeouts=[],clock=null,active=false;
  const mount=document.createElement('div');mount.id='video-editor-root';mount.hidden=true;document.body.append(mount);
@@ -78,12 +90,26 @@ export function createVideoEditor({onExit}){
   render();
   if(e.type==='SUBMIT'&&before.job!=='running'){
    timeouts.forEach(clearTimeout);
-   timeouts=[setTimeout(()=>send({type:'COMPLETE'}),3600)];
+   timeouts=[];
+   runOptimize();
   }
+  // 进入对话后就把后续视图的素材预热掉，否则「思考中」那屏也要等
+  if(e.type==='OPEN_AI')warm();
   if(!state.playing)clearInterval(clock);
   if(e.type==='PLAY'&&state.playing){clearInterval(clock);clock=setInterval(()=>{state=editorTransition(state,{type:'TICK'});mount.dataset.previewTime=state.time;mount.querySelectorAll('[data-editor-time-part]').forEach(el=>{el.textContent=String(el.dataset.editorTimePart==='minutes'?Math.floor(state.time/60):state.time%60).padStart(2,'0');});},1000);}
  }
- function close(){active=false;timeouts.forEach(clearTimeout);clearInterval(clock);mount.hidden=true;onExit();state=initialEditorState();}
+ let runToken=0;
+ const wait=ms=>new Promise(done=>{timeouts.push(setTimeout(done,ms));});
+ /** 模拟封面优化：结果页素材先解码完再计时，避免结果页还没显示全就跳过去。 */
+ async function runOptimize(){
+  const token=++runToken;
+  await preload([...collectViewAssets('result'),...collectViewAssets('done')]).catch(()=>{});
+  if(token!==runToken)return;
+  await wait(3600);
+  if(token!==runToken)return;
+  send({type:'COMPLETE'});
+ }
+ function close(){active=false;runToken++;timeouts.forEach(clearTimeout);clearInterval(clock);mount.hidden=true;onExit();state=initialEditorState();}
  mount.addEventListener('click',e=>{const b=e.target.closest('[data-editor-action]');if(!b||b.disabled)return;
   if(b.dataset.editorAction==='MUSIC'){b.setAttribute('aria-pressed',b.getAttribute('aria-pressed')!=='true');return;}
   send({type:b.dataset.editorAction});
@@ -91,5 +117,8 @@ export function createVideoEditor({onExit}){
  mount.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.matches('.editor-prompt')){e.target.blur();send({type:'SUBMIT'});}if(e.key==='Escape'){e.preventDefault();e.stopPropagation();send({type:'BACK'});}});
  window.addEventListener('resize',resize);window.visualViewport?.addEventListener('resize',()=>{if(active)resize();});
  window.addEventListener('pagehide',()=>{if(active)close();});
- return {open(){active=true;state=initialEditorState();mount.hidden=false;render();},close};
+ const warm=()=>{Object.keys(EDITOR_STAGES).filter(v=>v!==state.view).forEach(v=>{preload(collectViewAssets(v)).catch(()=>{});});};
+ return {open(){active=true;state=initialEditorState();mount.hidden=false;render();
+  // 首屏先出画面，其余视图在空闲时预热
+  if(typeof requestIdleCallback==='function')requestIdleCallback(warm,{timeout:2000});else setTimeout(warm,800);},close};
 }
