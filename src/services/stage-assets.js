@@ -1,5 +1,6 @@
 import { ASSIST_DESIGNS } from '../design/assist-layouts.js';
 import { getOptions } from '../data/recommendations.js';
+import { preload } from './asset-ready.js';
 
 /** 递归收集布局数据里的所有 asset 字段（slots / frames / cards / categories 都会覆盖到）。 */
 function collect(value, out) {
@@ -34,12 +35,7 @@ export function collectStageAssets(stage, state) {
 /** 预热除当前阶段外的其余阶段，让后续自动跳转零等待。空闲时执行，不影响首屏。 */
 export function warmStages(currentStage, state) {
  const stages = Object.keys(ASSIST_DESIGNS).filter(name => name !== currentStage);
- const run = () => stages.forEach(stage => preloadSafe(stage, state));
+ const run = () => stages.forEach(stage => { preload(collectStageAssets(stage, state)).catch(() => {}); });
  if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 2000 });
  else setTimeout(run, 800);
-}
-
-async function preloadSafe(stage, state) {
- const { preload } = await import('./asset-ready.js');
- await preload(collectStageAssets(stage, state)).catch(() => {});
 }

@@ -115,6 +115,107 @@ function transition(s,e) {
  }
 }
 
+/**
+ * 自动化流程的资源门控。
+ *
+ * 背景：Demo 的阶段推进（扫描 → 推荐、对齐 → 生成）原先是纯定时器驱动，
+ * 时间一到就直接 dispatch 跳转，完全不管下一屏的图片有没有解码完成，
+ * 在手机上就会出现「界面还没显示全就跳到下一步」。
+ *
+ * 约定：任何由计时器驱动的自动跳转，都必须先 await 目标阶段的资源就绪，
+ * 资源就绪之后才开始计时。这样倒计时结束真正跳转的那一刻，下一屏的图片
+ * 已经在缓存里，可以整屏一次性渲染出来。
+ *
+ * 所有等待都带超时兜底：单个资源加载失败或超时一律放行，
+ * 绝不让一个 404 把整个演示流程卡死。
+ */
+
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif|svg)(\?|#|$)/i;
+const DEFAULT_TIMEOUT = 6000;
+
+/** url -> Promise，同一个资源只解码一次，重复跳转不再有等待成本 */
+const decoded = new Map();
+
+function resolve(url) {
+ try { return new URL(url, location.href).href; } catch { return url; }
+}
+
+function isRetryable(url) {
+ return typeof url === 'string' && IMAGE_EXT.test(url);
+}
+
+/**
+ * 解码单个资源。onload 之后再调 decode()，确保图片不仅下载完、而且已经解码，
+ * 真正绘制时不会卡一帧。
+ */
+function decodeOne(url, timeout) {
+ const key = resolve(url);
+ if (decoded.has(key)) return decoded.get(key);
+
+ const task = new Promise(done => {
+  const img = new Image();
+  let settled = false;
+  const finish = () => { if (!settled) { settled = true; done(); } };
+  const timer = setTimeout(finish, timeout);
+
+  img.onload = () => {
+   clearTimeout(timer);
+   // decode() 在个别老浏览器上不存在，退化为 load 事件即可
+   const ready = typeof img.decode === 'function' ? img.decode() : Promise.resolve();
+   ready.then(finish, finish);
+  };
+  img.onerror = () => { clearTimeout(timer); finish(); };
+  img.src = key;
+ });
+
+ decoded.set(key, task);
+ return task;
+}
+
+/** 批量预加载并解码资源，全部就绪后 resolve。 */
+function preload(urls, { timeout = DEFAULT_TIMEOUT } = {}) {
+ const list = [...(urls || [])].filter(isRetryable);
+ if (!list.length) return Promise.resolve();
+ return Promise.all(list.map(url => decodeOne(url, timeout)));
+}
+
+/** 双 rAF：确认浏览器已完成一次真实绘制，而不只是更新了 DOM。 */
+function nextPaint() {
+ return new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+}
+
+/** 等当前 DOM 里的 <img> 全部解码完成（含内联 SVG 素材）。 */
+function waitForImages(root = document, { timeout = DEFAULT_TIMEOUT } = {}) {
+ const imgs = [...(root.querySelectorAll?.('img') || [])].filter(i => i.getAttribute('src'));
+ if (!imgs.length) return nextPaint();
+
+ return Promise.all(imgs.map(img => {
+  if (img.complete) {
+   const ready = typeof img.decode === 'function' ? img.decode() : Promise.resolve();
+   return ready.catch(() => {});
+  }
+  return new Promise(done => {
+   const timer = setTimeout(done, timeout);
+   const finish = () => { clearTimeout(timer); done(); };
+   img.addEventListener('load', () => {
+    const ready = typeof img.decode === 'function' ? img.decode() : Promise.resolve();
+    ready.then(finish, finish);
+   }, { once: true });
+   img.addEventListener('error', finish, { once: true });
+  });
+ })).then(nextPaint);
+}
+
+/** 等待字体就绪，避免文字先用回退字体渲染、再跳位。 */
+function fontsReady() {
+ return document.fonts?.ready?.catch(() => {}) ?? Promise.resolve();
+}
+
+/** 综合门控：字体 + 当前 DOM 图片 + 一次真实绘制。 */
+async function waitForVisualReady(root = document, opts = {}) {
+ await Promise.all([fontsReady(), waitForImages(root, opts)]);
+}
+
 const assetIcon=(file,cls='')=>'<span class="asset-icon '+cls+'" aria-hidden="true"><img src="./assets/icons/'+file+'.svg" alt="" /></span>';
 function icon(name,size=22) {
  const paths={
@@ -800,7 +901,11 @@ const ASSIST_DESIGNS = {
         "width": 15.662405967712402,
         "height": 15.662405967712402,
         "strokeWeight": 0.7805952429771423,
-        "asset": "./assets/design/19-443.svg"
+        "asset": "./assets/design/19-443.svg",
+        "paintOffset": {
+          "x": -0.390258349895477,
+          "y": -0.390309771611702
+        }
       },
       "connector": {
         "id": "19:463",
@@ -1327,6 +1432,47 @@ const ASSIST_DESIGNS = {
     }
   }
 };
+
+
+
+
+/** 递归收集布局数据里的所有 asset 字段（slots / frames / cards / categories 都会覆盖到）。 */
+function collect(value, out) {
+ if (!value || typeof value !== 'object') return;
+ if (Array.isArray(value)) { value.forEach(item => collect(item, out)); return; }
+ for (const [key, item] of Object.entries(value)) {
+  if (key === 'asset' && typeof item === 'string') out.add(item);
+  else collect(item, out);
+ }
+}
+
+/** 推荐缩略图来自数据层（REFERENCES），不在布局数据里，需要单独叠加。 */
+const THUMB_STAGES = ['recommendations', 'aligning', 'generating', 'ready'];
+
+/**
+ * 列出某个阶段渲染时需要的静态资源。
+ * 传 state 是为了拿到当前的 tab / category，从而确定该加载哪几张推荐缩略图。
+ */
+function collectStageAssets(stage, state) {
+ const urls = new Set();
+ const design = ASSIST_DESIGNS[stage];
+ if (design) collect(design, urls);
+
+ if (THUMB_STAGES.includes(stage) && state) {
+  try {
+   getOptions(state.tab, state.category).forEach(option => { if (option?.image) urls.add(option.image); });
+  } catch { /* 数据异常时忽略，交给超时兜底 */ }
+ }
+ return urls;
+}
+
+/** 预热除当前阶段外的其余阶段，让后续自动跳转零等待。空闲时执行，不影响首屏。 */
+function warmStages(currentStage, state) {
+ const stages = Object.keys(ASSIST_DESIGNS).filter(name => name !== currentStage);
+ const run = () => stages.forEach(stage => { preload(collectStageAssets(stage, state)).catch(() => {}); });
+ if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 2000 });
+ else setTimeout(run, 800);
+}
 
 // Live Figma 19:207, 2026-10-26. Coordinates are relative to its outer frame.
 const SCANNING_DESIGN = {
@@ -2056,6 +2202,8 @@ async function capturePhoto({source,viewport,filter='none',mirrored=false,zoom=1
 
 
 
+
+
 const app=document.querySelector('#app'),ui=document.querySelector('#ui'),sheetRoot=document.querySelector('#sheet-root');
 const scene=document.querySelector('#scene'),video=document.querySelector('#camera-video'),guide=document.querySelector('#guide-layer');
 let state=initialState(),media={source:'demo',pending:false,mirrored:false,message:'预置画面随时可用。真实相机需要 HTTPS 或本机 localhost。'};
@@ -2087,24 +2235,46 @@ function renderScanProgress(){
 function reconcileEffects(prev){
  if(prev.stage!==state.stage){
   stageToken++;clearInterval(stageInterval);clearInterval(alignInterval);alignInterval=null;
-  if(['scanning','generating'].includes(state.stage)){
-   const token=stageToken,stage=state.stage,start=performance.now(),duration=stage==='scanning'?TIMING.scan:TIMING.generate;
-   stageInterval=setInterval(()=>{
-    if(token!==stageToken)return;
-    const value=Math.floor((performance.now()-start)/duration*100);
-    if(value>=100){
-     clearInterval(stageInterval);
-     dispatch({type:stage==='scanning'?'SCAN_COMPLETE':'GENERATED'});
-     if(stage==='generating')toast('辅助已应用，可以拍下这一刻了');
-    }else dispatch({type:'PROGRESS',value});
-   },80);
-  }
+  if(['scanning','generating'].includes(state.stage))runStageTimer(stageToken,state.stage);
  }
  if(prev.countdown!==null&&state.countdown===null){clearInterval(countdownInterval);countdownInterval=null;}
  if(prev.live!==state.live){
   clearInterval(liveInterval);
   if(state.live){liveStarted=Date.now();updateLiveClock();liveInterval=setInterval(updateLiveClock,1000);}
  }
+}
+
+/**
+ * 自动推进：先把目标阶段要用到的资源全部解码完，再开始计时。
+ * 定时器只认时间、不认资源；不预取的话，下一屏图片还没解码就跳过去了。
+ */
+async function runStageTimer(token,stage){
+ const duration=stage==='scanning'?TIMING.scan:TIMING.generate;
+ const event={type:stage==='scanning'?'SCAN_COMPLETE':'GENERATED'};
+ // 要预取哪些资源取决于跳转后的状态，先推演出目标状态
+ const target=transition(state,event);
+ await preload(new Set([...collectStageAssets(stage,state),...collectStageAssets(target.stage,target)])).catch(()=>{});
+ if(token!==stageToken)return;   // 等待期间用户已切走，这次推进作废
+ const start=performance.now();
+ stageInterval=setInterval(()=>{
+  if(token!==stageToken)return;
+  const value=Math.floor((performance.now()-start)/duration*100);
+  if(value>=100){
+   clearInterval(stageInterval);
+   dispatch(event);
+   if(stage==='generating')toast('辅助已应用，可以拍下这一刻了');
+  }else dispatch({type:'PROGRESS',value});
+ },80);
+}
+
+/** 程序化跳转的统一入口：等目标阶段资源就绪后再 dispatch，且只执行最后一次请求。 */
+let readyToken=0;
+async function dispatchWhenReady(event){
+ const token=++readyToken;
+ const target=transition(state,event);
+ await preload(collectStageAssets(target.stage,target)).catch(()=>{});
+ if(token!==readyToken)return;
+ dispatch(event);
 }
 function updateLiveClock(){
  const time=document.querySelector('#live-time');if(!time)return;
@@ -2160,8 +2330,13 @@ function back(){
  if(state.sheet==='source'&&media.pending)camera.stop('已取消相机请求，继续使用预置画面。');
  dispatch({type:'BACK'});
 }
-function simulateAlignment(){
+async function simulateAlignment(){
  if(alignInterval||state.stage!=='aligning')return;
+ const token=stageToken;
+ // 对齐动画走完紧接着就是生成页，先把生成页要用的资源解码掉再开始动画
+ const target=transition(state,{type:'ALIGNED'});
+ await preload(new Set([...collectStageAssets(state.stage,state),...collectStageAssets(target.stage,target)])).catch(()=>{});
+ if(token!==stageToken||alignInterval||state.stage!=='aligning')return;
  const start=performance.now();
  alignInterval=setInterval(()=>{
   if(state.stage!=='aligning'){clearInterval(alignInterval);alignInterval=null;return;}
@@ -2189,7 +2364,7 @@ function bindAlignment(){
    updateAlignmentDirection(ui,app,{x,y},ASSIST_DESIGNS.aligning);
    moveAlignmentScene({x,y});
    const distance=Math.hypot(e.clientX-(target.left+target.width/2),e.clientY-(target.top+target.height/2));
-   if(distance<Math.max(12,target.width/2)){dot.removeEventListener('pointermove',move);if(state.stage==='recommendations')dispatch({type:'APPLY'});dispatch({type:'ALIGNED'});}
+   if(distance<Math.max(12,target.width/2)){dot.removeEventListener('pointermove',move);if(state.stage==='recommendations')dispatch({type:'APPLY'});dispatchWhenReady({type:'ALIGNED'});}
   };
   dot.addEventListener('pointermove',move);
   dot.addEventListener('pointerup',()=>{dot.removeEventListener('pointermove',move);},{once:true});
@@ -2288,7 +2463,8 @@ document.addEventListener('keydown',event=>{
 // Do not keep the user's camera active after they leave the page.
 window.addEventListener('pagehide',()=>{stageToken++;camera.stop();clearInterval(stageInterval);clearInterval(alignInterval);clearInterval(countdownInterval);clearInterval(liveInterval);state={...state,stage:state.applied?'ready':'idle',progress:0,alignment:0,countdown:null,live:false,sheet:null};render();});
 render();
-
+// 首屏先出画面；其余阶段在空闲时预热，后续自动跳转就不必再等资源了。
+warmStages(state.stage,state);
 
 
 })();
