@@ -613,7 +613,11 @@ export const ASSIST_DESIGNS = {
         "width": 15.662405967712402,
         "height": 15.662405967712402,
         "strokeWeight": 0.7805952429771423,
-        "asset": "./assets/design/19-443.svg"
+        "asset": "./assets/design/19-443.svg",
+        "paintOffset": {
+          "x": -0.390258349895477,
+          "y": -0.390309771611702
+        }
       },
       "connector": {
         "id": "19:463",
