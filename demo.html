@@ -7,12 +7,25 @@
 <meta name="description" content="AI 点点，来自实际 Figma 设计的移动端构图辅助交互 Demo。" />
 <title>AI 点点 · 把这一刻拍好</title>
 <link rel="icon" href="./assets/icons/19-98.svg" type="image/svg+xml" />
+<link rel="preload" href="./fonts/puhuiti2-65-Medium.woff2" as="font" type="font/woff2" crossorigin />
+
 
 
 
 
 <link rel="preload" href="./assets/figma/a25063dc1590114d04b2432fc040241452d833d8.png" as="image" />
-<style>:root {
+<style>/* 阿里巴巴普惠体 2.0 —— 按项目用字子集化（约 60KB/字重）。
+   设计稿所有像素级文本框都是按这套字体的字宽度量的，
+   手机端若回退到系统字体会变宽，导致固定宽度框内折行/裁字。
+   注意：字体放在 src/styles/fonts/，用相对路径引用，
+   这样 CSS 无论被 <link> 引入还是被内联进 demo.html 都能正确解析。 */
+@font-face{font-family:"Alibaba PuHuiTi 2.0";font-style:normal;font-weight:400;font-display:block;src:url("./fonts/puhuiti2-55-Regular.woff2") format("woff2")}
+@font-face{font-family:"Alibaba PuHuiTi 2.0";font-style:normal;font-weight:500;font-display:block;src:url("./fonts/puhuiti2-65-Medium.woff2") format("woff2")}
+@font-face{font-family:"Alibaba PuHuiTi 2.0";font-style:normal;font-weight:600;font-display:block;src:url("./fonts/puhuiti2-75-SemiBold.woff2") format("woff2")}
+@font-face{font-family:"Alibaba PuHuiTi 2.0";font-style:normal;font-weight:900;font-display:block;src:url("./fonts/puhuiti2-105-Heavy.woff2") format("woff2")}
+@font-face{font-family:"Alibaba PuHuiTi 2.0";font-style:normal;font-weight:900;font-display:block;src:url("./fonts/puhuiti2-115-Black.woff2") format("woff2")}
+
+:root {
  color-scheme:dark;
  --color-bg:#101413; --panel:#1a1a1a; --panel-raised:#282828;
  --text:#ffffffe5; --muted:#ffffff99; --subtle:#8d9390;

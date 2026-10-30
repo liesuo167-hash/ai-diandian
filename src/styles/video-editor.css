@@ -2,7 +2,7 @@
 .video-editor{position:absolute;inset:0;overflow:hidden;background:#000}
 .editor-layer{position:absolute;pointer-events:none;box-sizing:border-box}
 .editor-layer img{position:absolute;max-width:none;transform:scale(var(--editor-scale));transform-origin:top left}
-.editor-text{font-family:var(--font);line-height:1.35;white-space:pre-wrap;overflow:hidden}
+.editor-text{font-family:var(--font);line-height:1.35;white-space:pre-wrap}
 .editor-hit{position:absolute;left:calc(var(--hx) * var(--eu) - max(44px,var(--hw) * var(--eu))/2);top:calc(var(--hy) * var(--eu) - max(44px,var(--hh) * var(--eu))/2);width:max(44px,calc(var(--hw) * var(--eu)));height:max(44px,calc(var(--hh) * var(--eu)));background:transparent;border:0;padding:0;z-index:5}
 .editor-hit:active{background:#ffffff12;transform:none}
 .editor-prompt{pointer-events:auto;background:transparent;border:0;color:#eee;padding:0;z-index:6;outline:none!important;font-family:var(--font)}
