@@ -13,6 +13,7 @@
 
 
 
+
 <link rel="preload" href="./assets/figma/a25063dc1590114d04b2432fc040241452d833d8.png" as="image" />
 <style>/* 阿里巴巴普惠体 2.0 —— 按项目用字子集化（约 60KB/字重）。
    设计稿所有像素级文本框都是按这套字体的字宽度量的，
@@ -306,6 +307,13 @@ body {
 
 .collapsed-template { border:calc(.9072000384 * .9207865256 * var(--du)) solid #45ece7; border-radius:calc(2.41920018196 * .9207865256 * var(--du)); }
 .collapsed-template .collapsed-selected-image { left:0;top:0;width:100%;height:100%;object-fit:cover;transform:none;border-radius:inherit; }
+.photo-editor{position:absolute;inset:0;z-index:20;background:#1a191e;overflow:hidden}
+.photo-editor>span,.photo-editor>button{position:absolute}
+.photo-editor>span{pointer-events:none;z-index:2}
+.photo-editor>span img{position:absolute;max-width:none}
+.photo-editor .photo-result{position:absolute;left:0;top:11%;width:100%;height:70%;object-fit:contain;background:#1a191e;z-index:1}
+.photo-editor>button{background:transparent;border:0;min-width:44px;min-height:44px;z-index:3;padding:0}
+.photo-editor>button:active{background:#ffffff18}
 </style><script defer src="./offline.js"></script>
 
 </head>

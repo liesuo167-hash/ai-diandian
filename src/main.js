@@ -11,6 +11,8 @@ import { ASSIST_DESIGNS } from './design/assist-layouts.js';
 import { updateAlignmentDirection } from './components/alignment-direction.js';
 import { preload } from './services/asset-ready.js';
 import { collectStageAssets, warmStages } from './services/stage-assets.js';
+import { createPhotoEditor } from './components/photo-editor.js';
+import {createMotionAlignment,tiltPoint} from './services/motion-alignment.js';
 
 const app=document.querySelector('#app'),ui=document.querySelector('#ui'),sheetRoot=document.querySelector('#sheet-root');
 const scene=document.querySelector('#scene'),video=document.querySelector('#camera-video'),guide=document.querySelector('#guide-layer');
@@ -18,20 +20,53 @@ let state=initialState(),media={source:'demo',pending:false,mirrored:false,messa
 let alignmentWasDragged=false;
 let photos=[],stageInterval=null,alignInterval=null,countdownInterval=null,liveInterval=null,liveStarted=0;
 let toastTimer,stageToken=0,sheetSignature='',focusBeforeSheet=null,capturing=false;
+let cameraFallback=false,motionHeldAt=0,motionCompleting=false;
+const motion=createMotionAlignment({onUnavailable:message=>toast(message),onMove:(baseline,current,angle)=>{
+ if(!['recommendations','aligning'].includes(state.stage)||state.sheet||document.hidden||motionCompleting)return;
+ const d=ASSIST_DESIGNS.aligning,r=d.slots,scale=app.getBoundingClientRect().width/d.width;
+ const p=tiltPoint({x:r.movingDot.x+r.movingDot.width/2,y:r.movingDot.y+r.movingDot.height/2},baseline,current,angle);
+ const point={x:Math.max(0,Math.min(d.width,p.x))*scale,y:Math.max(0,Math.min(d.height,p.y))*scale};
+ const dot=ui.querySelector('[data-align-dot]');if(!dot)return;
+ dot.style.setProperty('--center-x',point.x+'px');dot.style.setProperty('--center-y',point.y+'px');updateAlignmentDirection(ui,app,point,d);
+ if(media.source!=='camera')moveAlignmentScene(point);
+ const distance=Math.hypot(p.x-r.targetDot.x-r.targetDot.width/2,p.y-r.targetDot.y-r.targetDot.height/2);
+ if(distance<Math.max(7,r.targetDot.width/2)){
+  if(!motionHeldAt)motionHeldAt=performance.now();
+  if(performance.now()-motionHeldAt>350){motionCompleting=true;if(state.stage==='recommendations')dispatch({type:'APPLY'});dispatchWhenReady({type:'ALIGNED'}).finally(()=>motionCompleting=false);}
+ }else motionHeldAt=0;
+}});
 const camera=createCameraController({video,onChange:next=>{media=next;render();}});
 const cameraLayout=installCameraLayout(app);
+const photoEditor=createPhotoEditor(app,{onReturn:()=>{ui.hidden=false;render();if(!cameraFallback)camera.start().then(ok=>{if(!ok)dispatch({type:'SHEET',value:'source'});});},onFeedback:message=>toast(message)});
 document.querySelector("#scan-layer").innerHTML=renderScanOverlay();
 const filters={none:'',warm:'sepia(0.18) saturate(1.12) brightness(1.03)',mono:'grayscale(1) contrast(1.08)'};
+// iOS-style sheet timing approximation shared by the panel and camera controls.
+const PANEL_MOTION={duration:500,easing:'cubic-bezier(.32,.72,0,1)'};
 const filterValue=()=>(filters[state.filter]+(state.beauty?' brightness('+(1+state.beauty/600)+') saturate('+(1+state.beauty/900)+')':''))||'none';
 function toast(message){
  const el=document.querySelector('#toast');el.textContent=message;el.classList.add('visible');
  clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('visible'),3300);
 }
 function dispatch(event){
+ if(['SCAN_COMPLETE','SELECT','CATEGORY','TAB','OPEN_RECOMMENDATIONS'].includes(event.type)){motion.reset();motionHeldAt=0;}
  const prev=state;state=transition(state,event);if(prev===state)return;
  // Only scanning ticks update text/ARIA: replacing the whole camera every 80 ms
  // can detach the cancel button between pointerdown and click on mobile.
- if(event.type==='PROGRESS'&&state.stage==='scanning')renderScanProgress();else render();
+ if(event.type==='ALIGN'){
+  const d=ASSIST_DESIGNS.aligning,r=d.slots,scale=app.getBoundingClientRect().width/d.width;
+  const point={x:(r.movingDot.x+r.movingDot.width/2+(r.targetDot.x+r.targetDot.width/2-r.movingDot.x-r.movingDot.width/2)*state.alignment/100)*scale,y:(r.movingDot.y+r.movingDot.height/2+(r.targetDot.y+r.targetDot.height/2-r.movingDot.y-r.movingDot.height/2)*state.alignment/100)*scale};
+  const dot=ui.querySelector('[data-align-dot]');dot?.style.setProperty('--center-x',point.x+'px');dot?.style.setProperty('--center-y',point.y+'px');updateAlignmentDirection(ui,app,point,d);moveAlignmentScene(point);
+ }else if(event.type==='PROGRESS'){
+  if(state.stage==='scanning')renderScanProgress();else ui.querySelector('[aria-label="生成进度"]')?.setAttribute('aria-valuenow',state.progress);
+ }else{
+  const targets=['[data-action="ai-entry"]','[data-action="shutter"]','[data-action="vlog"]'];
+  const old=event.type==='SCAN_COMPLETE'?targets.map(s=>ui.querySelector(s)?.getBoundingClientRect()):null;
+  render();
+  if(old&&!matchMedia('(prefers-reduced-motion: reduce)').matches){
+   targets.forEach((s,i)=>{const el=ui.querySelector(s.replace('shutter','apply')),rect=el?.getBoundingClientRect();if(el&&old[i]&&rect)el.animate([{translate:'0 '+(old[i].top-rect.top)+'px'},{translate:'0 0'}],PANEL_MOTION);});
+   ui.querySelector('.assist-panel')?.animate([{opacity:0,translate:'0 100px'},{opacity:1,translate:'0 0'}],PANEL_MOTION);
+  }
+ }
  reconcileEffects(prev);
 }
 function renderScanProgress(){
@@ -104,7 +139,7 @@ function render(){
   [...ui.querySelectorAll('[data-action]')].find(e=>e.dataset.action===activeAction&&e.dataset.value===activeValue)?.focus({preventScroll:true});
  }
  const panel=hasPanel(state);app.classList.toggle('panel-open',panel);
- scene.hidden=media.source==='camera';video.hidden=media.source!=='camera';
+ scene.hidden=media.source==='camera'||!cameraFallback;video.hidden=media.source!=='camera';
  scene.style.filter=filterValue();video.style.filter=filterValue();
  ui.querySelectorAll('[data-scene-layer],[data-capture-layer]').forEach(img=>{img.style.filter=filterValue();});
  video.style.transform=media.mirrored?'scaleX(-1)':'';
@@ -127,14 +162,15 @@ function render(){
   }
  }
  ui.inert=!!state.sheet;
- updateLiveClock();bindAlignment();
+ updateLiveClock();
  const design=ASSIST_DESIGNS.aligning,origin=design.slots.movingDot,target=design.slots.targetDot;
- if(['recommendations','aligning'].includes(state.stage)){
+ if(['recommendations','aligning'].includes(state.stage)&&media.source!=='camera'){
   const scale=app.getBoundingClientRect().width/design.width;
   moveAlignmentScene({x:(origin.x+origin.width/2+(target.x+target.width/2-origin.x-origin.width/2)*state.alignment/100)*scale,y:(origin.y+origin.height/2+(target.y+target.height/2-origin.y-origin.height/2)*state.alignment/100)*scale});
  }else document.querySelector('#scene-frame-inner').style.translate='';
 }
 function back(){
+ if(state.sheet==='exited'){ui.hidden=false;document.querySelector('#viewfinder').hidden=false;dispatch({type:'RESET'});return;}
  if(state.sheet==='source'&&media.pending)camera.stop('已取消相机请求，继续使用预置画面。');
  dispatch({type:'BACK'});
 }
@@ -151,7 +187,7 @@ async function simulateAlignment(){
   const value=Math.min(100,Math.round((performance.now()-start)/TIMING.align*100));
   dispatch({type:'ALIGN',value});
   if(value===100){clearInterval(alignInterval);alignInterval=null;dispatch({type:'ALIGNED'});}
- },70);
+ },16);
 }
 function moveAlignmentScene(point){
  const d=ASSIST_DESIGNS.aligning,r=d.slots.movingDot,scale=app.getBoundingClientRect().width/d.width;
@@ -180,6 +216,7 @@ function bindAlignment(){
  });
 }
 async function shoot(){
+ if(media.source!=='camera'&&!cameraFallback){dispatch({type:'SHEET',value:'source'});return;}
  if(capturing||isBusy(state)||hasPanel(state)||state.sheet)return;
  if(state.mode==='live'){
   dispatch({type:'LIVE'});toast(state.live?'已开始本地模拟直播，不会向外推流':'模拟直播已结束');return;
@@ -205,7 +242,7 @@ async function takePhoto(){
   const url=await capturePhoto({source,viewport:rect,filter:filterValue(),mirrored:media.mirrored,renderRect});
   photos.unshift({id:Date.now(),url,label:media.source==='camera'?'相机拍摄':'预置画面 · Demo'});photos=photos.slice(0,12);
   const flash=document.querySelector('#flash');flash.hidden=!state.flash;setTimeout(()=>{flash.hidden=true;},160);
-  navigator.vibrate?.(25);render();toast('拍摄完成');
+  navigator.vibrate?.(25);ui.hidden=true;camera.stop();photoEditor.open(url);
  }catch(error){toast(error.message||'拍摄失败，请稍后重试。');}
  finally{capturing=false;}
 }
@@ -215,11 +252,12 @@ app.addEventListener('click',async event=>{
  switch(action){
  case 'collapse-panel':dispatch({type:'COLLAPSE_PANEL'});break;
  case 'expand-panel':dispatch({type:'EXPAND_PANEL'});break;
- case 'start-ai':dispatch({type:'START_AI'});break;
- case 'ai-entry':dispatch({type:state.stage==='idle'?'START_AI':'OPEN_RECOMMENDATIONS'});break;
- case 'cancel-ai':back();toast('已取消本次分析');break;
+ case 'start-ai':motion.start();dispatch({type:'START_AI'});break;
+ case 'ai-entry':motion.start();dispatch({type:state.stage==='idle'?'START_AI':'OPEN_RECOMMENDATIONS'});break;
+ case 'cancel-ai':readyToken++;motion.stop();dispatch({type:'DISABLE_AI'});toast('AI 辅助已关闭');break;
+ case 'clear-template':readyToken++;clearInterval(alignInterval);alignInterval=null;motion.reset();motionHeldAt=0;dispatch({type:'CLEAR_TEMPLATE'});break;
  case 'disable-ai':dispatch({type:'DISABLE_AI'});toast('AI 辅助已关闭');break;
- case 'back':case 'close-sheet':case 'resume':back();break;
+ case 'back':case 'close-sheet':case 'resume':{const paused=state.sheet==='exit';back();if(paused&&['scanning','generating'].includes(state.stage))runStageTimer(++stageToken,state.stage);break;}
  case 'tab':dispatch({type:'TAB',value});break;
  case 'category':dispatch({type:'CATEGORY',value});ui.querySelector('[data-action="category"][data-value="'+value+'"]')?.scrollIntoView({block:'nearest',inline:'nearest'});break;
  case 'select':
@@ -227,8 +265,8 @@ app.addEventListener('click',async event=>{
   if(state.stage==='aligning'&&state.tab==='composition'){clearInterval(alignInterval);alignInterval=null;}
   dispatch({type:'SELECT',value});break;
  case 'apply':dispatch({type:'APPLY'});break;
- case 'align-drag':if(!alignmentWasDragged)dispatch({type:'COLLAPSE_PANEL'});alignmentWasDragged=false;break;
- case 'simulate-align':simulateAlignment();break;
+ case 'align-drag':motion.start();toast('请移动手机进行对齐，无需拖动圆点。');break;
+ case 'simulate-align':motion.start();toast('请缓慢移动或倾斜手机，让灰色圆点进入渐变圆圈并保持片刻。');break;
  case 'edit-assist':dispatch({type:'OPEN_RECOMMENDATIONS'});break;
  case 'guide':dispatch({type:'TOGGLE_GUIDE'});break;
  case 'mode':dispatch({type:'MODE',value});break;
@@ -242,13 +280,14 @@ app.addEventListener('click',async event=>{
   const ok=await camera.start();if(ok){dispatch({type:'SHEET',value:null});toast('真实相机已启用');}
   break;
  }
- case 'use-demo':camera.stop();dispatch({type:'SHEET',value:null});toast('已使用预置画面');break;
+ case 'use-demo':cameraFallback=true;camera.stop();dispatch({type:'SHEET',value:null});toast('已使用预置画面');break;
  case 'flip':{
   if(media.source!=='camera'){dispatch({type:'SHEET',value:'source'});break;}
   const ok=await camera.flip();toast(ok?'已切换镜头':media.message);break;
  }
- case 'reset':camera.stop();photos=[];dispatch({type:'RESET'});toast('已重新开始演示');break;
- case 'exit':if(isBusy(state)||hasPanel(state)||state.countdown!==null)back();else dispatch({type:'SHEET',value:'exit'});break;
+ case 'reset':motion.stop();camera.stop();ui.hidden=false;document.querySelector('#viewfinder').hidden=false;photos=[];dispatch({type:'RESET'});if(!cameraFallback)camera.start().then(ok=>{if(!ok)dispatch({type:'SHEET',value:'source'});});toast('已重新开始演示');break;
+ case 'leave-camera':motion.stop();camera.stop();ui.hidden=true;document.querySelector('#viewfinder').hidden=true;state={...state,stage:'idle',sheet:'exited',live:false};render();break;
+ case 'exit':readyToken++;stageToken++;clearInterval(stageInterval);clearInterval(alignInterval);clearInterval(countdownInterval);state={...state,countdown:null,live:false,sheet:'exit'};render();break;
  case 'filters':case 'beauty':case 'about':case 'gallery':case 'vlog':dispatch({type:'SHEET',value:action});break;
  }
 });
@@ -271,5 +310,9 @@ document.addEventListener('keydown',event=>{
 // Do not keep the user's camera active after they leave the page.
 window.addEventListener('pagehide',()=>{stageToken++;camera.stop();clearInterval(stageInterval);clearInterval(alignInterval);clearInterval(countdownInterval);clearInterval(liveInterval);state={...state,stage:state.applied?'ready':'idle',progress:0,alignment:0,countdown:null,live:false,sheet:null};render();});
 render();
+camera.start().then(ok=>{if(!ok&&!state.sheet)dispatch({type:'SHEET',value:'source'});});
+window.addEventListener('pagehide',()=>motion.stop());
+document.addEventListener('visibilitychange',()=>{motion.reset();motionHeldAt=0;});
 // 首屏先出画面；其余阶段在空闲时预热，后续自动跳转就不必再等资源了。
 warmStages(state.stage,state);
+

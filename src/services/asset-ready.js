@@ -38,11 +38,10 @@ function decodeOne(url, timeout) {
  const task = new Promise(done => {
   const img = new Image();
   let settled = false;
-  const finish = () => { if (!settled) { settled = true; done(); } };
+  const finish = () => { if (!settled) { settled = true; clearTimeout(timer); done(); } };
   const timer = setTimeout(finish, timeout);
 
   img.onload = () => {
-   clearTimeout(timer);
    // decode() 在个别老浏览器上不存在，退化为 load 事件即可
    const ready = typeof img.decode === 'function' ? img.decode() : Promise.resolve();
    ready.then(finish, finish);

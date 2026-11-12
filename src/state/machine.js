@@ -39,6 +39,9 @@ export function transition(s,e) {
   // Composition thumbnails enter manual alignment, including the preselected template.
   if(s.tab==='composition') return {...s,selected:e.value,stage:'aligning',alignment:0,guideVisible:true};
   return {...s,selected:s.selected===e.value?null:e.value};
+ case 'CLEAR_TEMPLATE':
+  if(!hasPanel(s))return s;
+  return {...s,stage:'recommendations',selected:null,applied:null,alignment:0,guideVisible:false};
  case 'APPLY':
   if(s.stage!=='recommendations'||!findOption(s.tab,s.selected)) return s;
   return {...s,stage:'aligning',alignment:0,guideVisible:true};

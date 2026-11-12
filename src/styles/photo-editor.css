@@ -1,0 +1,7 @@
+.photo-editor{position:absolute;inset:0;z-index:20;background:#1a191e;overflow:hidden}
+.photo-editor>span,.photo-editor>button{position:absolute}
+.photo-editor>span{pointer-events:none;z-index:2}
+.photo-editor>span img{position:absolute;max-width:none}
+.photo-editor .photo-result{position:absolute;left:0;top:11%;width:100%;height:70%;object-fit:contain;background:#1a191e;z-index:1}
+.photo-editor>button{background:transparent;border:0;min-width:44px;min-height:44px;z-index:3;padding:0}
+.photo-editor>button:active{background:#ffffff18}

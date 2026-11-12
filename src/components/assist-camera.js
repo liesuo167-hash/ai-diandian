@@ -32,7 +32,7 @@ function assistEntry(s,d,key,action,name,disabled){
 function assistShutter(s,d){
  const busy=s.stage==='generating',align=s.stage==='aligning',select=s.stage==='recommendations';
  const action=select?'apply':align?'simulate-align':'shutter';
- const name=select?'应用所选构图':align?'模拟对齐并生成构图':'拍摄照片';
+ const name=select?'应用所选构图':align?'移动手机对齐':'拍摄照片';
  const r=d.slots.shutter,core=relativeRect(d.slots.shutterCore,r);
  return button(action,name,assistLayer(core,'','assist-shutter-core',d.slots.shutterCore.id),'design-box assist-shutter',
   'data-design="'+r.id+'" style="'+assistStyle(r)+'" '+(busy||(select&&!s.selected)?'disabled':''));
@@ -63,8 +63,8 @@ function assistPanel(s,d){
  assistLayer(indicator,'','assist-tab-indicator',r.tabIndicator.id)+
  assistLayer(r.smartPill,'','assist-smart-pill',r.smartPill.id)+assistArtwork(r.smartIcon,r.smartIcon.id)+
  '<div role="tablist" aria-label="推荐分类">'+categoryControls+'</div>'+
- assistControl(r.none,'disable-ai','取消构图辅助',
-  assistLayer({...r.none,x:-r.none.width/2,y:-r.none.height/2},assistArtwork(relativeRect(r.noneIcon,r.none),r.noneIcon.id),'assist-none-art',r.none.id),disabled,'assist-none')+
+ assistControl(r.none,'clear-template','取消当前模板',
+  assistLayer({...r.none,x:-r.none.width/2,y:-r.none.height/2},assistArtwork(relativeRect(r.noneIcon,r.none),r.noneIcon.id),'assist-none-art',r.none.id),'aria-pressed="'+(s.selected===null)+'"','assist-none')+
 
  '<div role="group" aria-label="'+(s.tab==='pose'?'姿势':'构图')+'方案">'+cards+'</div></section>';
 }
@@ -77,7 +77,7 @@ function assistAlignment(s,d){
  '<span class="assist-direction-line" data-figma-node="'+r.connector.id+'"></span>'+
  '<span class="assist-direction-arrow" data-figma-node="'+r.arrow.id+'">'+assistImage(r.arrow)+'</span></span>';
  return '<div class="assist-alignment">'+assistArtwork(r.targetDot,r.targetDot.id).replace('<span ','<span data-align-target ')+assistArtwork(r.targetRing,r.targetRing.id)+
- direction+assistOriginalControl({...r.movingDot,x:point.x-r.movingDot.width/2,y:point.y-r.movingDot.height/2},'align-drag','拖动光点对齐','data-align-dot','assist-align-dot')+'</div>';
+ direction+assistOriginalControl({...r.movingDot,x:point.x-r.movingDot.width/2,y:point.y-r.movingDot.height/2},'align-drag','启用手机移动对齐','data-align-dot','assist-align-dot')+'</div>';
 }
 function assistMediaLayers(s,d,media){
  if(s.stage==='ready'&&media.source==='demo')return assistArtwork(d.slots.photo,d.slots.photo.id).replace('<img ','<img data-capture-layer ');
@@ -94,8 +94,7 @@ function assistSuccess(d){
 export function renderAssistCamera(s,media){
  if(s.panelCollapsed&&['recommendations','aligning'].includes(s.stage))return renderCollapsedAssist(s);
  const d=ASSIST_DESIGNS[s.stage],r=d.slots,busy=['aligning','generating'].includes(s.stage),disabled=busy?'disabled':'';
- const closeAction=['recommendations','ready'].includes(s.stage)?'disable-ai':'back';
- const close=assistOriginalControl(r.close,closeAction,s.stage==='recommendations'||s.stage==='ready'?'关闭 AI 辅助':'返回拍摄');
+ const close=assistOriginalControl(r.close,'exit','离开拍摄');
  const tools=['flip','flash','filters','beauty'].map((name,i)=>{
   let rect=r[name];if(name==='flash'&&s.flash)rect={...rect,width:12.682284355163574,height:21.27399253845215,asset:'./assets/icons/19-141.svg'};
   return assistOriginalControl(rect,name,['切换前后镜头','闪光灯','滤镜','美颜'][i],disabled+(name==='flash'?' aria-pressed="'+s.flash+'"':''));
@@ -118,9 +117,8 @@ function renderCollapsedAssist(s){
  const ratio=264.3290710449219/287.0690612792969;
  const slot=(x,y,w,h)=>'--x:'+x*ratio+';--y:'+y*ratio+';--w:'+w*ratio+';--h:'+h*ratio;
  const camera=renderMainCamera({...s,stage:'idle'},{hidePrompt:true})
-  .replace('data-action="exit"','data-action="disable-ai"').replace('aria-label="离开拍摄"','aria-label="关闭 AI 辅助"')
   .replace('data-action="ai-entry"','data-action="expand-panel"').replace('aria-pressed="false"','aria-pressed="true"');
  return '<section data-frame="62:92" class="collapsed-assist">'+camera+
  '<button class="design-box collapsed-template" data-action="expand-panel" aria-label="展开构图模板" style="'+slot(29.411251449584825,422.50244331359863,49.652156829833984,65.3121566772461)+'"><img class="collapsed-selected-image" src="'+source+'" alt="'+label+'" /></button>'+
- '<button class="design-box collapsed-template-close" data-action="disable-ai" aria-label="退出 AI 点点" style="'+slot(73.8651123046875,415.330060005188,14.344579696655273,14.344579696655273)+'"><img src="./assets/design/62-154.svg" alt="" /></button></section>';
+ '<button class="design-box collapsed-template-close" data-action="clear-template" aria-label="取消当前模板" style="'+slot(73.8651123046875,415.330060005188,14.344579696655273,14.344579696655273)+'"><img src="./assets/design/62-154.svg" alt="" /></button></section>';
 }

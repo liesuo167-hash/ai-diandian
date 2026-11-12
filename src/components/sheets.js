@@ -11,7 +11,9 @@ export function renderSheet(name,s,media,photos) {
  body='<p>帮你找到构图，也帮你留住好瞬间。</p><ol class="help-steps"><li>开启 AI，等待场景扫描完成。</li><li>选择构图或姿势，点击「应用辅助」。</li><li>拖动光点或使用「模拟对齐」。</li><li>生成后回到拍摄，按下快门。</li></ol><div class="notice"><b>这是一个交互 Demo</b><p>AI 扫描、姿势建议、对齐和直播均为本地模拟。照片只保存在本次页面内存中，刷新即清空。未接入 AI 或直播服务。</p></div>';
  } else if(name==='exit'){
  heading='这一刻，先暂停一下';
- body='<p>照片和当前辅助会保留在本次页面中。</p><div class="sheet-actions">'+button('resume','继续拍摄','继续拍摄','primary-button')+button('reset','重新开始演示','重新开始','secondary-button')+'</div>';
+   body='<p>是否退出拍摄？</p><div class="sheet-actions">'+button('resume','继续拍摄','继续拍摄','primary-button')+button('leave-camera','退出拍摄','退出拍摄','secondary-button')+'</div>';
+   } else if(name==='exited'){
+   heading='已退出拍摄';body=button('reset','重新进入拍摄','重新进入拍摄','primary-button');
  } else if(name==='filters'){
  heading='一点氛围，刚刚好';
  body='<div class="filter-options">'+[{id:'none',label:'原图'},{id:'warm',label:'暖阳'},{id:'mono',label:'黑白'}].map(f=>button('filter',f.label,'<span class="filter-preview '+f.id+'"></span>'+f.label,s.filter===f.id?'selected':'','data-value="'+f.id+'" aria-pressed="'+(s.filter===f.id)+'"')).join('')+'</div><p class="sheet-note">本地画面滤镜，拍摄时会一并保留。</p>';

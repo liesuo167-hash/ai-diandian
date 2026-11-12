@@ -80,6 +80,9 @@ function transition(s,e) {
   // Composition thumbnails enter manual alignment, including the preselected template.
   if(s.tab==='composition') return {...s,selected:e.value,stage:'aligning',alignment:0,guideVisible:true};
   return {...s,selected:s.selected===e.value?null:e.value};
+ case 'CLEAR_TEMPLATE':
+  if(!hasPanel(s))return s;
+  return {...s,stage:'recommendations',selected:null,applied:null,alignment:0,guideVisible:false};
  case 'APPLY':
   if(s.stage!=='recommendations'||!findOption(s.tab,s.selected)) return s;
   return {...s,stage:'aligning',alignment:0,guideVisible:true};
@@ -155,11 +158,10 @@ function decodeOne(url, timeout) {
  const task = new Promise(done => {
   const img = new Image();
   let settled = false;
-  const finish = () => { if (!settled) { settled = true; done(); } };
+  const finish = () => { if (!settled) { settled = true; clearTimeout(timer); done(); } };
   const timer = setTimeout(finish, timeout);
 
   img.onload = () => {
-   clearTimeout(timer);
    // decode() 在个别老浏览器上不存在，退化为 load 事件即可
    const ready = typeof img.decode === 'function' ? img.decode() : Promise.resolve();
    ready.then(finish, finish);
@@ -214,6 +216,36 @@ function fontsReady() {
 /** 综合门控：字体 + 当前 DOM 图片 + 一次真实绘制。 */
 async function waitForVisualReady(root = document, opts = {}) {
  await Promise.all([fontsReady(), waitForImages(root, opts)]);
+}
+
+// Orientation gives relative tilt, not absolute translation or computer vision.
+function tiltPoint(origin,baseline,current,angle=0){
+ const delta=v=>((v+180)%360+360)%360-180;
+ const x=delta(current.gamma-baseline.gamma)*4,y=delta(current.beta-baseline.beta)*4,r=angle*Math.PI/180;
+ return {x:origin.x+x*Math.cos(r)+y*Math.sin(r),y:origin.y+y*Math.cos(r)-x*Math.sin(r)};
+}
+function createMotionAlignment({onMove,onUnavailable,environment=globalThis}){
+ let active=false,baseline=null,frame=0,latest=null,received=false,timer;
+ function reset(){baseline=null;latest=null;}
+ function listen(e){
+  if(!Number.isFinite(e.beta)||!Number.isFinite(e.gamma))return;
+  received=true;clearTimeout(timer);latest={beta:e.beta,gamma:e.gamma};
+  if(!baseline)baseline={...latest};
+  if(!frame)frame=environment.requestAnimationFrame(()=>{frame=0;if(active&&latest)onMove(baseline,latest,environment.screen?.orientation?.angle??environment.orientation??0);});
+ }
+ async function start(){
+  const Event=environment.DeviceOrientationEvent;
+  if(!environment.isSecureContext||!Event){onUnavailable('移动对齐需要支持运动传感器的手机，并通过 HTTPS 打开。');return false;}
+  try{
+   if(typeof Event.requestPermission==='function'&&await Event.requestPermission()!=='granted'){onUnavailable('未授权运动传感器，请允许后重新点击 AI 点点。');return false;}
+   if(active)return true;
+   active=true;received=false;reset();environment.addEventListener('deviceorientation',listen);
+   timer=setTimeout(()=>{if(!received)onUnavailable('没有收到手机运动数据，请检查运动与方向权限。');},4500);
+   return true;
+  }catch{onUnavailable('运动传感器授权失败，请在手机浏览器中允许运动与方向访问。');return false;}
+ }
+ function stop(){active=false;clearTimeout(timer);environment.removeEventListener('deviceorientation',listen);if(frame)environment.cancelAnimationFrame(frame);frame=0;reset();}
+ return {start,stop,reset};
 }
 
 const assetIcon=(file,cls='')=>'<span class="asset-icon '+cls+'" aria-hidden="true"><img src="./assets/icons/'+file+'.svg" alt="" /></span>';
@@ -1893,6 +1925,42 @@ function installCameraLayout(app) {
  return {setStage,dispose:()=>{window.removeEventListener('resize',update);window.visualViewport?.removeEventListener('resize',update);}};
 }
 
+/** Direction uses design coordinates; the unmodified Figma SVGs supply the artwork. */
+function alignmentGeometry(from,to,fromRadius,toRadius){
+ const dx=to.x-from.x,dy=to.y-from.y,distance=Math.hypot(dx,dy);
+ const ux=distance?dx/distance:0,uy=distance?dy/distance:-1;
+ return {tipX:to.x-ux*toRadius,tipY:to.y-uy*toRadius,
+  length:Math.max(0,distance-fromRadius-toRadius),angle:Math.atan2(ux,-uy)*180/Math.PI};
+}
+function directionStyle(g,lineHeight){
+ return '--tip-x:'+g.tipX+';--tip-y:'+g.tipY+';--direction-angle:'+g.angle+'deg;--line-length:'+g.length;
+}
+/** Update during pointer movement without replacing the captured dot DOM. */
+function updateAlignmentDirection(ui,app,point,design){
+ const layer=ui.querySelector('[data-align-direction]');if(!layer)return;
+ const rect=app.getBoundingClientRect(),scale=rect.width/design.width,r=design.slots;
+ const from={x:point.x/scale,y:point.y/scale},to={x:r.targetDot.x+r.targetDot.width/2,y:r.targetDot.y+r.targetDot.height/2};
+ layer.setAttribute('style',directionStyle(alignmentGeometry(from,to,r.movingDot.width/2,r.targetRing.width/2),r.connector.height));
+}
+
+const PHOTO_EDITOR={"width":270.8999938964844,"height":590.7999877929688,"atoms":[{"id":"86:258","name":"➤状态栏","type":"INSTANCE","visible":true,"locked":false,"x":-4.062744140625,"y":0,"width":272.8448791503906,"height":32.013797760009766,"parentId":"86:212","rotation":0,"opacity":1,"cornerRadius":0,"fills":[],"constraints":{"horizontal":"CENTER","vertical":"MIN"},"clipsContent":false,"mainComponent":{"id":"1:2","name":"1.iOS/1.Bars/1.Status Bar/X - Light Status Bar","key":"5a503c298c16405b9ae974d11616b2e4d8f95d12"},"exportWidth":273,"exportHeight":33},{"id":"86:259","name":"Group 45","type":"GROUP","visible":true,"locked":false,"x":17.236419677734375,"y":48.04261016845703,"width":5.905045032501221,"height":9.849465370178223,"parentId":"86:212","rotation":0,"opacity":1,"exportWidth":6,"exportHeight":10},{"id":"86:265","name":"Rectangle 346242868","type":"RECTANGLE","visible":true,"locked":false,"x":87.08167266845703,"y":583.5778198242188,"width":97.78759765625,"height":1.9196633100509644,"parentId":"86:212","rotation":0,"opacity":1,"cornerRadius":43.800697326660156,"fills":[{"type":"SOLID","visible":true,"opacity":1,"color":{"r":1,"g":1,"b":1}}],"constraints":{"horizontal":"MIN","vertical":"MIN"},"exportWidth":98,"exportHeight":2},{"id":"86:266","name":"Group 2147208729","type":"GROUP","visible":true,"locked":false,"x":87.45939636230469,"y":42.701171875,"width":95.281005859375,"height":20.9365234375,"parentId":"86:212","rotation":0,"opacity":1,"exportWidth":96,"exportHeight":21},{"id":"86:279","name":"Group 2147208730","type":"GROUP","visible":true,"locked":false,"x":213.4884490966797,"y":45.22177505493164,"width":45.86713790893555,"height":15.31146240234375,"parentId":"86:212","rotation":0,"opacity":1,"exportWidth":47,"exportHeight":17},{"id":"86:284","name":"Mask group","type":"GROUP","visible":true,"locked":false,"x":52.505859375,"y":491.322998046875,"width":30.81689453125,"height":30.81689453125,"parentId":"86:212","rotation":0,"opacity":1,"exportWidth":31,"exportHeight":31},{"id":"86:293","name":"Mask group","type":"GROUP","visible":true,"locked":false,"x":14.13037109375,"y":491.322998046875,"width":30.81689453125,"height":30.81689453125,"parentId":"86:212","rotation":0,"opacity":1,"exportWidth":31,"exportHeight":31},{"id":"86:297","name":"Rectangle 462292276","type":"VECTOR","visible":true,"locked":false,"x":14.13037109375,"y":491.9293212890625,"width":30.210205078125,"height":30.210205078125,"parentId":"86:212","rotation":0,"opacity":1,"cornerRadius":2.799999952316284,"fills":[],"strokes":[{"type":"GRADIENT_LINEAR","visible":true,"opacity":1,"cssAngle":140.32,"gradientStops":[{"position":0,"color":{"r":0.9411764740943909,"g":1,"b":0.9843137264251709,"a":1}},{"position":0.5769230723381042,"color":{"r":0.2705882489681244,"g":0.9254902005195618,"b":0.9058823585510254,"a":1}},{"position":1,"color":{"r":0.10980392247438431,"g":0.7843137383460999,"b":0.95686274766922,"a":1}}],"gradientTransform":[[0.4950976073741913,0.5966792702674866,-0.0002809723955579102],[-0.5966792702674866,0.4950976073741913,0.5243069529533386]]}],"strokeWeight":1.0499999523162842,"strokeAlign":"OUTSIDE","constraints":{"horizontal":"MIN","vertical":"MIN"},"exportWidth":33,"exportHeight":33},{"id":"86:214","name":"image 1701879153","type":"RECTANGLE","visible":true,"locked":false,"x":-147.766357421875,"y":-39.0283203125,"width":487.5826721191406,"height":731.3740234375,"parentId":"86:213","rotation":0,"opacity":1,"cornerRadius":0,"fills":[{"type":"IMAGE","visible":true,"opacity":1,"scaleMode":"FILL"}],"constraints":{"horizontal":"MIN","vertical":"MIN"},"targetAspectRatio":{"x":480,"y":720},"exportWidth":282,"exportHeight":609},{"id":"86:215","name":"Rectangle 462292271","type":"VECTOR","visible":true,"locked":false,"x":-104.35406494140625,"y":-153.6222686767578,"width":532.6490478515625,"height":1149.247802734375,"parentId":"86:213","rotation":0,"opacity":1,"cornerRadius":0,"fills":[{"type":"IMAGE","visible":true,"opacity":1,"scaleMode":"FILL"}],"constraints":{"horizontal":"CENTER","vertical":"MIN"},"exportWidth":282,"exportHeight":609},{"id":"86:216","name":"Rectangle 462292283","type":"RECTANGLE","visible":true,"locked":false,"x":-2.03173828125,"y":480.3955078125,"width":275.834228515625,"height":110.404296875,"parentId":"86:213","rotation":0,"opacity":1,"cornerRadius":0,"fills":[{"type":"SOLID","visible":true,"opacity":1,"color":{"r":0.07694371044635773,"g":0.07614755630493164,"b":0.08012830466032028}}],"constraints":{"horizontal":"MIN","vertical":"MIN"},"exportWidth":276,"exportHeight":111},{"id":"86:217","name":"Rectangle 462292284","type":"RECTANGLE","visible":true,"locked":false,"x":-2.03173828125,"y":-3.55078125,"width":275.834228515625,"height":54.7900390625,"parentId":"86:213","rotation":0,"opacity":1,"cornerRadius":0,"fills":[{"type":"SOLID","visible":true,"opacity":1,"color":{"r":0.10196078568696976,"g":0.09803921729326248,"b":0.11764705926179886}}],"constraints":{"horizontal":"MIN","vertical":"MIN"},"exportWidth":276,"exportHeight":55},{"id":"86:218","name":"Group 2147208733","type":"GROUP","visible":true,"locked":false,"x":130.9365234375,"y":548.455078125,"width":15.195801734924316,"height":14.695733070373535,"parentId":"86:213","rotation":0,"opacity":1,"exportWidth":17,"exportHeight":17},{"id":"86:221","name":"Union","type":"BOOLEAN_OPERATION","visible":true,"locked":false,"x":44.79052734375,"y":548.46875,"width":14.795797348022461,"height":14.7431640625,"parentId":"86:213","rotation":0,"opacity":1,"cornerRadius":0,"fills":[{"type":"SOLID","visible":true,"opacity":1,"color":{"r":0.9375,"g":0.9375,"b":0.9375}}],"exportWidth":15,"exportHeight":15},{"id":"86:226","name":"Group 2147208731","type":"GROUP","visible":true,"locked":false,"x":75.6015625,"y":549.80078125,"width":11.037109375,"height":11.754227638244629,"parentId":"86:213","rotation":0,"opacity":1,"exportWidth":13,"exportHeight":14},{"id":"86:228","name":"Group 2147208732","type":"GROUP","visible":true,"locked":false,"x":102.6533203125,"y":550.060546875,"width":12.268310546875,"height":12.2490234375,"parentId":"86:213","rotation":0,"opacity":1,"exportWidth":14,"exportHeight":14},{"id":"86:234","name":"Group 2147208734","type":"GROUP","visible":true,"locked":false,"x":162.1474609375,"y":550.9609375,"width":10.6259765625,"height":10.6259765625,"parentId":"86:213","rotation":0,"opacity":1,"exportWidth":11,"exportHeight":11},{"id":"86:241","name":"滤镜","type":"TEXT","visible":true,"locked":false,"x":47.1884765625,"y":565.951171875,"width":10,"height":7,"parentId":"86:213","rotation":0,"opacity":1,"fills":[{"type":"SOLID","visible":true,"opacity":1,"color":{"r":1,"g":1,"b":1}}],"constraints":{"horizontal":"MIN","vertical":"MIN"},"characters":"滤镜","fontSize":5,"fontName":{"family":"Alibaba PuHuiTi 2.0","style":"55 Regular"},"textAlignHorizontal":"LEFT","textAlignVertical":"TOP","lineHeight":{"unit":"AUTO"},"letterSpacing":{"value":0,"unit":"PERCENT"},"textCase":"ORIGINAL","textDecoration":"NONE","textAutoResize":"WIDTH_AND_HEIGHT","textTruncation":"DISABLED","maxLines":null,"paragraphSpacing":0,"paragraphIndent":0,"textWrapStyle":"AUTO","exportWidth":10,"exportHeight":5},{"id":"86:242","name":"文字","type":"TEXT","visible":true,"locked":false,"x":76.1201171875,"y":565.951171875,"width":10,"height":7,"parentId":"86:213","rotation":0,"opacity":1,"fills":[{"type":"SOLID","visible":true,"opacity":1,"color":{"r":1,"g":1,"b":1}}],"constraints":{"horizontal":"MIN","vertical":"MIN"},"characters":"文字","fontSize":5,"fontName":{"family":"Alibaba PuHuiTi 2.0","style":"55 Regular"},"textAlignHorizontal":"LEFT","textAlignVertical":"TOP","lineHeight":{"unit":"AUTO"},"letterSpacing":{"value":0,"unit":"PERCENT"},"textCase":"ORIGINAL","textDecoration":"NONE","textAutoResize":"WIDTH_AND_HEIGHT","textTruncation":"DISABLED","maxLines":null,"paragraphSpacing":0,"paragraphIndent":0,"textWrapStyle":"AUTO","exportWidth":10,"exportHeight":5},{"id":"86:243","name":"贴纸","type":"TEXT","visible":true,"locked":false,"x":103.23828125,"y":565.951171875,"width":10,"height":7,"parentId":"86:213","rotation":0,"opacity":1,"fills":[{"type":"SOLID","visible":true,"opacity":1,"color":{"r":1,"g":1,"b":1}}],"constraints":{"horizontal":"MIN","vertical":"MIN"},"characters":"贴纸","fontSize":5,"fontName":{"family":"Alibaba PuHuiTi 2.0","style":"55 Regular"},"textAlignHorizontal":"LEFT","textAlignVertical":"TOP","lineHeight":{"unit":"AUTO"},"letterSpacing":{"value":0,"unit":"PERCENT"},"textCase":"ORIGINAL","textDecoration":"NONE","textAutoResize":"WIDTH_AND_HEIGHT","textTruncation":"DISABLED","maxLines":null,"paragraphSpacing":0,"paragraphIndent":0,"textWrapStyle":"AUTO","exportWidth":10,"exportHeight":5},{"id":"86:244","name":"裁切","type":"TEXT","visible":true,"locked":false,"x":133.193359375,"y":565.951171875,"width":10,"height":7,"parentId":"86:213","rotation":0,"opacity":1,"fills":[{"type":"SOLID","visible":true,"opacity":1,"color":{"r":1,"g":1,"b":1}}],"constraints":{"horizontal":"MIN","vertical":"MIN"},"characters":"裁切","fontSize":5,"fontName":{"family":"Alibaba PuHuiTi 2.0","style":"55 Regular"},"textAlignHorizontal":"LEFT","textAlignVertical":"TOP","lineHeight":{"unit":"AUTO"},"letterSpacing":{"value":0,"unit":"PERCENT"},"textCase":"ORIGINAL","textDecoration":"NONE","textAutoResize":"WIDTH_AND_HEIGHT","textTruncation":"DISABLED","maxLines":null,"paragraphSpacing":0,"paragraphIndent":0,"textWrapStyle":"AUTO","exportWidth":10,"exportHeight":5},{"id":"86:245","name":"更多","type":"TEXT","visible":true,"locked":false,"x":161.970703125,"y":565.951171875,"width":10,"height":6,"parentId":"86:213","rotation":0,"opacity":1,"fills":[{"type":"SOLID","visible":true,"opacity":1,"color":{"r":1,"g":1,"b":1}}],"constraints":{"horizontal":"MIN","vertical":"MIN"},"characters":"更多","fontSize":5,"fontName":{"family":"Inter","style":"Regular","variationSettings":{"slnt":0,"wght":400}},"textAlignHorizontal":"LEFT","textAlignVertical":"TOP","lineHeight":{"unit":"AUTO"},"letterSpacing":{"value":0,"unit":"PERCENT"},"textCase":"ORIGINAL","textDecoration":"NONE","textAutoResize":"WIDTH_AND_HEIGHT","textTruncation":"DISABLED","maxLines":null,"paragraphSpacing":0,"paragraphIndent":0,"textWrapStyle":"AUTO","exportWidth":10,"exportHeight":5},{"id":"86:246","name":"Rectangle 462292291","type":"RECTANGLE","visible":true,"locked":false,"x":196.8153076171875,"y":545.3583984375,"width":58.814453125,"height":25.5927734375,"parentId":"86:213","rotation":0,"opacity":1,"cornerRadius":14.89892578125,"fills":[{"type":"SOLID","visible":true,"opacity":1,"color":{"r":1,"g":0,"b":0.2078431397676468}}],"constraints":{"horizontal":"MIN","vertical":"MIN"},"exportWidth":59,"exportHeight":26},{"id":"86:247","name":"下一步","type":"TEXT","visible":true,"locked":false,"x":209.7225341796875,"y":550.6552734375,"width":33,"height":15,"parentId":"86:213","rotation":0,"opacity":1,"fills":[{"type":"SOLID","visible":true,"opacity":1,"color":{"r":1,"g":1,"b":1}}],"constraints":{"horizontal":"MIN","vertical":"MIN"},"characters":"下一步","fontSize":11,"fontName":{"family":"Alibaba PuHuiTi 2.0","style":"55 Regular"},"textAlignHorizontal":"LEFT","textAlignVertical":"TOP","lineHeight":{"unit":"AUTO"},"letterSpacing":{"value":0,"unit":"PERCENT"},"textCase":"ORIGINAL","textDecoration":"NONE","textAutoResize":"WIDTH_AND_HEIGHT","textTruncation":"DISABLED","maxLines":null,"paragraphSpacing":0,"paragraphIndent":0,"textWrapStyle":"AUTO","exportWidth":32,"exportHeight":10},{"id":"86:248","name":"Group 52","type":"GROUP","visible":true,"locked":false,"x":14.276565551757812,"y":547.6015625,"width":16.40752410888672,"height":16.408157348632812,"parentId":"86:213","rotation":0.0933426589980604,"opacity":1,"exportWidth":17,"exportHeight":17},{"id":"86:257","name":"AI修图","type":"TEXT","visible":true,"locked":false,"x":14.302932739257812,"y":565.951171875,"width":15,"height":7,"parentId":"86:213","rotation":0,"opacity":1,"fills":[{"type":"SOLID","visible":true,"opacity":1,"color":{"r":1,"g":1,"b":1}}],"constraints":{"horizontal":"MIN","vertical":"MIN"},"characters":"AI修图","fontSize":5,"fontName":{"family":"Alibaba PuHuiTi 2.0","style":"55 Regular"},"textAlignHorizontal":"LEFT","textAlignVertical":"TOP","lineHeight":{"unit":"AUTO"},"letterSpacing":{"value":0,"unit":"PERCENT"},"textCase":"ORIGINAL","textDecoration":"NONE","textAutoResize":"WIDTH_AND_HEIGHT","textTruncation":"DISABLED","maxLines":null,"paragraphSpacing":0,"paragraphIndent":0,"textWrapStyle":"AUTO","exportWidth":14,"exportHeight":5}]};
+
+function createPhotoEditor(app,{onReturn,onFeedback}){
+ const d=PHOTO_EDITOR;
+ const mount=document.createElement('section');mount.className='photo-editor';mount.hidden=true;mount.setAttribute('aria-label','照片编辑');app.append(mount);
+ const box=n=>'left:'+n.x/d.width*100+'%;top:'+n.y/d.height*100+'%;width:'+n.width/d.width*100+'%;height:'+n.height/d.height*100+'%;';
+ function hit(n,label,action){return '<button aria-label="'+label+'" data-photo-action="'+action+'" style="'+box({...n,x:n.x+n.width/2-15,y:n.y+n.height/2-15,width:30,height:30})+'"></button>';}
+ const find=id=>d.atoms.find(n=>n.id===id);
+ function close(){mount.hidden=true;onReturn();}
+ mount.addEventListener('click',e=>{const action=e.target.closest('[data-photo-action]')?.dataset.photoAction;if(!action)return;if(action==='back'||action==='camera')close();else if(action==='next'){const a=document.createElement('a');a.href=mount.querySelector('.photo-result').src;a.download='diandian-photo.png';a.click();onFeedback('照片已准备下载');}else onFeedback('此编辑工具暂未接入，照片已保留');});
+ return {open(url){
+  mount.innerHTML=d.atoms.filter(n=>!['86:214','86:215'].includes(n.id)).sort((a,b)=>Number(a.id.split(':')[1])-Number(b.id.split(':')[1])).map(n=>'<span style="'+box(n)+'"><img alt="" src="./assets/photo-editor/'+n.id.replace(':','-')+'.svg" style="width:'+n.exportWidth/n.width*100+'%;height:'+n.exportHeight/n.height*100+'%;left:'+((n.width-n.exportWidth)/2/n.width*100)+'%;top:'+((n.height-n.exportHeight)/2/n.height*100)+'%" /></span>').join('')+
+  '<img class="photo-result" alt="刚拍摄的照片" />'+hit(find('86:259'),'返回拍摄','back')+hit(find('86:284'),'接着拍','camera')+hit(find('86:247'),'下一步，保存照片','next')+
+  ['86:248','86:221','86:226','86:228','86:218','86:234'].map((id,i)=>hit(find(id),['AI修图','滤镜','文字','贴纸','裁切','更多'][i],'tool')).join('');
+  mount.querySelector('.photo-result').src=url;mount.hidden=false;
+ },close};
+}
+
 
 
 
@@ -2003,7 +2071,7 @@ function assistEntry(s,d,key,action,name,disabled){
 function assistShutter(s,d){
  const busy=s.stage==='generating',align=s.stage==='aligning',select=s.stage==='recommendations';
  const action=select?'apply':align?'simulate-align':'shutter';
- const name=select?'应用所选构图':align?'模拟对齐并生成构图':'拍摄照片';
+ const name=select?'应用所选构图':align?'移动手机对齐':'拍摄照片';
  const r=d.slots.shutter,core=relativeRect(d.slots.shutterCore,r);
  return button(action,name,assistLayer(core,'','assist-shutter-core',d.slots.shutterCore.id),'design-box assist-shutter',
   'data-design="'+r.id+'" style="'+assistStyle(r)+'" '+(busy||(select&&!s.selected)?'disabled':''));
@@ -2034,8 +2102,8 @@ function assistPanel(s,d){
  assistLayer(indicator,'','assist-tab-indicator',r.tabIndicator.id)+
  assistLayer(r.smartPill,'','assist-smart-pill',r.smartPill.id)+assistArtwork(r.smartIcon,r.smartIcon.id)+
  '<div role="tablist" aria-label="推荐分类">'+categoryControls+'</div>'+
- assistControl(r.none,'disable-ai','取消构图辅助',
-  assistLayer({...r.none,x:-r.none.width/2,y:-r.none.height/2},assistArtwork(relativeRect(r.noneIcon,r.none),r.noneIcon.id),'assist-none-art',r.none.id),disabled,'assist-none')+
+ assistControl(r.none,'clear-template','取消当前模板',
+  assistLayer({...r.none,x:-r.none.width/2,y:-r.none.height/2},assistArtwork(relativeRect(r.noneIcon,r.none),r.noneIcon.id),'assist-none-art',r.none.id),'aria-pressed="'+(s.selected===null)+'"','assist-none')+
 
  '<div role="group" aria-label="'+(s.tab==='pose'?'姿势':'构图')+'方案">'+cards+'</div></section>';
 }
@@ -2048,7 +2116,7 @@ function assistAlignment(s,d){
  '<span class="assist-direction-line" data-figma-node="'+r.connector.id+'"></span>'+
  '<span class="assist-direction-arrow" data-figma-node="'+r.arrow.id+'">'+assistImage(r.arrow)+'</span></span>';
  return '<div class="assist-alignment">'+assistArtwork(r.targetDot,r.targetDot.id).replace('<span ','<span data-align-target ')+assistArtwork(r.targetRing,r.targetRing.id)+
- direction+assistOriginalControl({...r.movingDot,x:point.x-r.movingDot.width/2,y:point.y-r.movingDot.height/2},'align-drag','拖动光点对齐','data-align-dot','assist-align-dot')+'</div>';
+ direction+assistOriginalControl({...r.movingDot,x:point.x-r.movingDot.width/2,y:point.y-r.movingDot.height/2},'align-drag','启用手机移动对齐','data-align-dot','assist-align-dot')+'</div>';
 }
 function assistMediaLayers(s,d,media){
  if(s.stage==='ready'&&media.source==='demo')return assistArtwork(d.slots.photo,d.slots.photo.id).replace('<img ','<img data-capture-layer ');
@@ -2065,8 +2133,7 @@ function assistSuccess(d){
 function renderAssistCamera(s,media){
  if(s.panelCollapsed&&['recommendations','aligning'].includes(s.stage))return renderCollapsedAssist(s);
  const d=ASSIST_DESIGNS[s.stage],r=d.slots,busy=['aligning','generating'].includes(s.stage),disabled=busy?'disabled':'';
- const closeAction=['recommendations','ready'].includes(s.stage)?'disable-ai':'back';
- const close=assistOriginalControl(r.close,closeAction,s.stage==='recommendations'||s.stage==='ready'?'关闭 AI 辅助':'返回拍摄');
+ const close=assistOriginalControl(r.close,'exit','离开拍摄');
  const tools=['flip','flash','filters','beauty'].map((name,i)=>{
   let rect=r[name];if(name==='flash'&&s.flash)rect={...rect,width:12.682284355163574,height:21.27399253845215,asset:'./assets/icons/19-141.svg'};
   return assistOriginalControl(rect,name,['切换前后镜头','闪光灯','滤镜','美颜'][i],disabled+(name==='flash'?' aria-pressed="'+s.flash+'"':''));
@@ -2089,11 +2156,10 @@ function renderCollapsedAssist(s){
  const ratio=264.3290710449219/287.0690612792969;
  const slot=(x,y,w,h)=>'--x:'+x*ratio+';--y:'+y*ratio+';--w:'+w*ratio+';--h:'+h*ratio;
  const camera=renderMainCamera({...s,stage:'idle'},{hidePrompt:true})
-  .replace('data-action="exit"','data-action="disable-ai"').replace('aria-label="离开拍摄"','aria-label="关闭 AI 辅助"')
   .replace('data-action="ai-entry"','data-action="expand-panel"').replace('aria-pressed="false"','aria-pressed="true"');
  return '<section data-frame="62:92" class="collapsed-assist">'+camera+
  '<button class="design-box collapsed-template" data-action="expand-panel" aria-label="展开构图模板" style="'+slot(29.411251449584825,422.50244331359863,49.652156829833984,65.3121566772461)+'"><img class="collapsed-selected-image" src="'+source+'" alt="'+label+'" /></button>'+
- '<button class="design-box collapsed-template-close" data-action="disable-ai" aria-label="退出 AI 点点" style="'+slot(73.8651123046875,415.330060005188,14.344579696655273,14.344579696655273)+'"><img src="./assets/design/62-154.svg" alt="" /></button></section>';
+ '<button class="design-box collapsed-template-close" data-action="clear-template" aria-label="取消当前模板" style="'+slot(73.8651123046875,415.330060005188,14.344579696655273,14.344579696655273)+'"><img src="./assets/design/62-154.svg" alt="" /></button></section>';
 }
 
 
@@ -2117,7 +2183,9 @@ function renderSheet(name,s,media,photos) {
  body='<p>帮你找到构图，也帮你留住好瞬间。</p><ol class="help-steps"><li>开启 AI，等待场景扫描完成。</li><li>选择构图或姿势，点击「应用辅助」。</li><li>拖动光点或使用「模拟对齐」。</li><li>生成后回到拍摄，按下快门。</li></ol><div class="notice"><b>这是一个交互 Demo</b><p>AI 扫描、姿势建议、对齐和直播均为本地模拟。照片只保存在本次页面内存中，刷新即清空。未接入 AI 或直播服务。</p></div>';
  } else if(name==='exit'){
  heading='这一刻，先暂停一下';
- body='<p>照片和当前辅助会保留在本次页面中。</p><div class="sheet-actions">'+button('resume','继续拍摄','继续拍摄','primary-button')+button('reset','重新开始演示','重新开始','secondary-button')+'</div>';
+   body='<p>是否退出拍摄？</p><div class="sheet-actions">'+button('resume','继续拍摄','继续拍摄','primary-button')+button('leave-camera','退出拍摄','退出拍摄','secondary-button')+'</div>';
+   } else if(name==='exited'){
+   heading='已退出拍摄';body=button('reset','重新进入拍摄','重新进入拍摄','primary-button');
  } else if(name==='filters'){
  heading='一点氛围，刚刚好';
  body='<div class="filter-options">'+[{id:'none',label:'原图'},{id:'warm',label:'暖阳'},{id:'mono',label:'黑白'}].map(f=>button('filter',f.label,'<span class="filter-preview '+f.id+'"></span>'+f.label,s.filter===f.id?'selected':'','data-value="'+f.id+'" aria-pressed="'+(s.filter===f.id)+'"')).join('')+'</div><p class="sheet-note">本地画面滤镜，拍摄时会一并保留。</p>';
@@ -2204,26 +2272,61 @@ async function capturePhoto({source,viewport,filter='none',mirrored=false,zoom=1
 
 
 
+
+
 const app=document.querySelector('#app'),ui=document.querySelector('#ui'),sheetRoot=document.querySelector('#sheet-root');
 const scene=document.querySelector('#scene'),video=document.querySelector('#camera-video'),guide=document.querySelector('#guide-layer');
 let state=initialState(),media={source:'demo',pending:false,mirrored:false,message:'预置画面随时可用。真实相机需要 HTTPS 或本机 localhost。'};
 let alignmentWasDragged=false;
 let photos=[],stageInterval=null,alignInterval=null,countdownInterval=null,liveInterval=null,liveStarted=0;
 let toastTimer,stageToken=0,sheetSignature='',focusBeforeSheet=null,capturing=false;
+let cameraFallback=false,motionHeldAt=0,motionCompleting=false;
+const motion=createMotionAlignment({onUnavailable:message=>toast(message),onMove:(baseline,current,angle)=>{
+ if(!['recommendations','aligning'].includes(state.stage)||state.sheet||document.hidden||motionCompleting)return;
+ const d=ASSIST_DESIGNS.aligning,r=d.slots,scale=app.getBoundingClientRect().width/d.width;
+ const p=tiltPoint({x:r.movingDot.x+r.movingDot.width/2,y:r.movingDot.y+r.movingDot.height/2},baseline,current,angle);
+ const point={x:Math.max(0,Math.min(d.width,p.x))*scale,y:Math.max(0,Math.min(d.height,p.y))*scale};
+ const dot=ui.querySelector('[data-align-dot]');if(!dot)return;
+ dot.style.setProperty('--center-x',point.x+'px');dot.style.setProperty('--center-y',point.y+'px');updateAlignmentDirection(ui,app,point,d);
+ if(media.source!=='camera')moveAlignmentScene(point);
+ const distance=Math.hypot(p.x-r.targetDot.x-r.targetDot.width/2,p.y-r.targetDot.y-r.targetDot.height/2);
+ if(distance<Math.max(7,r.targetDot.width/2)){
+  if(!motionHeldAt)motionHeldAt=performance.now();
+  if(performance.now()-motionHeldAt>350){motionCompleting=true;if(state.stage==='recommendations')dispatch({type:'APPLY'});dispatchWhenReady({type:'ALIGNED'}).finally(()=>motionCompleting=false);}
+ }else motionHeldAt=0;
+}});
 const camera=createCameraController({video,onChange:next=>{media=next;render();}});
 const cameraLayout=installCameraLayout(app);
+const photoEditor=createPhotoEditor(app,{onReturn:()=>{ui.hidden=false;render();if(!cameraFallback)camera.start().then(ok=>{if(!ok)dispatch({type:'SHEET',value:'source'});});},onFeedback:message=>toast(message)});
 document.querySelector("#scan-layer").innerHTML=renderScanOverlay();
 const filters={none:'',warm:'sepia(0.18) saturate(1.12) brightness(1.03)',mono:'grayscale(1) contrast(1.08)'};
+// iOS-style sheet timing approximation shared by the panel and camera controls.
+const PANEL_MOTION={duration:500,easing:'cubic-bezier(.32,.72,0,1)'};
 const filterValue=()=>(filters[state.filter]+(state.beauty?' brightness('+(1+state.beauty/600)+') saturate('+(1+state.beauty/900)+')':''))||'none';
 function toast(message){
  const el=document.querySelector('#toast');el.textContent=message;el.classList.add('visible');
  clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('visible'),3300);
 }
 function dispatch(event){
+ if(['SCAN_COMPLETE','SELECT','CATEGORY','TAB','OPEN_RECOMMENDATIONS'].includes(event.type)){motion.reset();motionHeldAt=0;}
  const prev=state;state=transition(state,event);if(prev===state)return;
  // Only scanning ticks update text/ARIA: replacing the whole camera every 80 ms
  // can detach the cancel button between pointerdown and click on mobile.
- if(event.type==='PROGRESS'&&state.stage==='scanning')renderScanProgress();else render();
+ if(event.type==='ALIGN'){
+  const d=ASSIST_DESIGNS.aligning,r=d.slots,scale=app.getBoundingClientRect().width/d.width;
+  const point={x:(r.movingDot.x+r.movingDot.width/2+(r.targetDot.x+r.targetDot.width/2-r.movingDot.x-r.movingDot.width/2)*state.alignment/100)*scale,y:(r.movingDot.y+r.movingDot.height/2+(r.targetDot.y+r.targetDot.height/2-r.movingDot.y-r.movingDot.height/2)*state.alignment/100)*scale};
+  const dot=ui.querySelector('[data-align-dot]');dot?.style.setProperty('--center-x',point.x+'px');dot?.style.setProperty('--center-y',point.y+'px');updateAlignmentDirection(ui,app,point,d);moveAlignmentScene(point);
+ }else if(event.type==='PROGRESS'){
+  if(state.stage==='scanning')renderScanProgress();else ui.querySelector('[aria-label="生成进度"]')?.setAttribute('aria-valuenow',state.progress);
+ }else{
+  const targets=['[data-action="ai-entry"]','[data-action="shutter"]','[data-action="vlog"]'];
+  const old=event.type==='SCAN_COMPLETE'?targets.map(s=>ui.querySelector(s)?.getBoundingClientRect()):null;
+  render();
+  if(old&&!matchMedia('(prefers-reduced-motion: reduce)').matches){
+   targets.forEach((s,i)=>{const el=ui.querySelector(s.replace('shutter','apply')),rect=el?.getBoundingClientRect();if(el&&old[i]&&rect)el.animate([{translate:'0 '+(old[i].top-rect.top)+'px'},{translate:'0 0'}],PANEL_MOTION);});
+   ui.querySelector('.assist-panel')?.animate([{opacity:0,translate:'0 100px'},{opacity:1,translate:'0 0'}],PANEL_MOTION);
+  }
+ }
  reconcileEffects(prev);
 }
 function renderScanProgress(){
@@ -2296,7 +2399,7 @@ function render(){
   [...ui.querySelectorAll('[data-action]')].find(e=>e.dataset.action===activeAction&&e.dataset.value===activeValue)?.focus({preventScroll:true});
  }
  const panel=hasPanel(state);app.classList.toggle('panel-open',panel);
- scene.hidden=media.source==='camera';video.hidden=media.source!=='camera';
+ scene.hidden=media.source==='camera'||!cameraFallback;video.hidden=media.source!=='camera';
  scene.style.filter=filterValue();video.style.filter=filterValue();
  ui.querySelectorAll('[data-scene-layer],[data-capture-layer]').forEach(img=>{img.style.filter=filterValue();});
  video.style.transform=media.mirrored?'scaleX(-1)':'';
@@ -2319,14 +2422,15 @@ function render(){
   }
  }
  ui.inert=!!state.sheet;
- updateLiveClock();bindAlignment();
+ updateLiveClock();
  const design=ASSIST_DESIGNS.aligning,origin=design.slots.movingDot,target=design.slots.targetDot;
- if(['recommendations','aligning'].includes(state.stage)){
+ if(['recommendations','aligning'].includes(state.stage)&&media.source!=='camera'){
   const scale=app.getBoundingClientRect().width/design.width;
   moveAlignmentScene({x:(origin.x+origin.width/2+(target.x+target.width/2-origin.x-origin.width/2)*state.alignment/100)*scale,y:(origin.y+origin.height/2+(target.y+target.height/2-origin.y-origin.height/2)*state.alignment/100)*scale});
  }else document.querySelector('#scene-frame-inner').style.translate='';
 }
 function back(){
+ if(state.sheet==='exited'){ui.hidden=false;document.querySelector('#viewfinder').hidden=false;dispatch({type:'RESET'});return;}
  if(state.sheet==='source'&&media.pending)camera.stop('已取消相机请求，继续使用预置画面。');
  dispatch({type:'BACK'});
 }
@@ -2343,7 +2447,7 @@ async function simulateAlignment(){
   const value=Math.min(100,Math.round((performance.now()-start)/TIMING.align*100));
   dispatch({type:'ALIGN',value});
   if(value===100){clearInterval(alignInterval);alignInterval=null;dispatch({type:'ALIGNED'});}
- },70);
+ },16);
 }
 function moveAlignmentScene(point){
  const d=ASSIST_DESIGNS.aligning,r=d.slots.movingDot,scale=app.getBoundingClientRect().width/d.width;
@@ -2372,6 +2476,7 @@ function bindAlignment(){
  });
 }
 async function shoot(){
+ if(media.source!=='camera'&&!cameraFallback){dispatch({type:'SHEET',value:'source'});return;}
  if(capturing||isBusy(state)||hasPanel(state)||state.sheet)return;
  if(state.mode==='live'){
   dispatch({type:'LIVE'});toast(state.live?'已开始本地模拟直播，不会向外推流':'模拟直播已结束');return;
@@ -2397,7 +2502,7 @@ async function takePhoto(){
   const url=await capturePhoto({source,viewport:rect,filter:filterValue(),mirrored:media.mirrored,renderRect});
   photos.unshift({id:Date.now(),url,label:media.source==='camera'?'相机拍摄':'预置画面 · Demo'});photos=photos.slice(0,12);
   const flash=document.querySelector('#flash');flash.hidden=!state.flash;setTimeout(()=>{flash.hidden=true;},160);
-  navigator.vibrate?.(25);render();toast('拍摄完成');
+  navigator.vibrate?.(25);ui.hidden=true;camera.stop();photoEditor.open(url);
  }catch(error){toast(error.message||'拍摄失败，请稍后重试。');}
  finally{capturing=false;}
 }
@@ -2407,11 +2512,12 @@ app.addEventListener('click',async event=>{
  switch(action){
  case 'collapse-panel':dispatch({type:'COLLAPSE_PANEL'});break;
  case 'expand-panel':dispatch({type:'EXPAND_PANEL'});break;
- case 'start-ai':dispatch({type:'START_AI'});break;
- case 'ai-entry':dispatch({type:state.stage==='idle'?'START_AI':'OPEN_RECOMMENDATIONS'});break;
- case 'cancel-ai':back();toast('已取消本次分析');break;
+ case 'start-ai':motion.start();dispatch({type:'START_AI'});break;
+ case 'ai-entry':motion.start();dispatch({type:state.stage==='idle'?'START_AI':'OPEN_RECOMMENDATIONS'});break;
+ case 'cancel-ai':readyToken++;motion.stop();dispatch({type:'DISABLE_AI'});toast('AI 辅助已关闭');break;
+ case 'clear-template':readyToken++;clearInterval(alignInterval);alignInterval=null;motion.reset();motionHeldAt=0;dispatch({type:'CLEAR_TEMPLATE'});break;
  case 'disable-ai':dispatch({type:'DISABLE_AI'});toast('AI 辅助已关闭');break;
- case 'back':case 'close-sheet':case 'resume':back();break;
+ case 'back':case 'close-sheet':case 'resume':{const paused=state.sheet==='exit';back();if(paused&&['scanning','generating'].includes(state.stage))runStageTimer(++stageToken,state.stage);break;}
  case 'tab':dispatch({type:'TAB',value});break;
  case 'category':dispatch({type:'CATEGORY',value});ui.querySelector('[data-action="category"][data-value="'+value+'"]')?.scrollIntoView({block:'nearest',inline:'nearest'});break;
  case 'select':
@@ -2419,8 +2525,8 @@ app.addEventListener('click',async event=>{
   if(state.stage==='aligning'&&state.tab==='composition'){clearInterval(alignInterval);alignInterval=null;}
   dispatch({type:'SELECT',value});break;
  case 'apply':dispatch({type:'APPLY'});break;
- case 'align-drag':if(!alignmentWasDragged)dispatch({type:'COLLAPSE_PANEL'});alignmentWasDragged=false;break;
- case 'simulate-align':simulateAlignment();break;
+ case 'align-drag':motion.start();toast('请移动手机进行对齐，无需拖动圆点。');break;
+ case 'simulate-align':motion.start();toast('请缓慢移动或倾斜手机，让灰色圆点进入渐变圆圈并保持片刻。');break;
  case 'edit-assist':dispatch({type:'OPEN_RECOMMENDATIONS'});break;
  case 'guide':dispatch({type:'TOGGLE_GUIDE'});break;
  case 'mode':dispatch({type:'MODE',value});break;
@@ -2434,13 +2540,14 @@ app.addEventListener('click',async event=>{
   const ok=await camera.start();if(ok){dispatch({type:'SHEET',value:null});toast('真实相机已启用');}
   break;
  }
- case 'use-demo':camera.stop();dispatch({type:'SHEET',value:null});toast('已使用预置画面');break;
+ case 'use-demo':cameraFallback=true;camera.stop();dispatch({type:'SHEET',value:null});toast('已使用预置画面');break;
  case 'flip':{
   if(media.source!=='camera'){dispatch({type:'SHEET',value:'source'});break;}
   const ok=await camera.flip();toast(ok?'已切换镜头':media.message);break;
  }
- case 'reset':camera.stop();photos=[];dispatch({type:'RESET'});toast('已重新开始演示');break;
- case 'exit':if(isBusy(state)||hasPanel(state)||state.countdown!==null)back();else dispatch({type:'SHEET',value:'exit'});break;
+ case 'reset':motion.stop();camera.stop();ui.hidden=false;document.querySelector('#viewfinder').hidden=false;photos=[];dispatch({type:'RESET'});if(!cameraFallback)camera.start().then(ok=>{if(!ok)dispatch({type:'SHEET',value:'source'});});toast('已重新开始演示');break;
+ case 'leave-camera':motion.stop();camera.stop();ui.hidden=true;document.querySelector('#viewfinder').hidden=true;state={...state,stage:'idle',sheet:'exited',live:false};render();break;
+ case 'exit':readyToken++;stageToken++;clearInterval(stageInterval);clearInterval(alignInterval);clearInterval(countdownInterval);state={...state,countdown:null,live:false,sheet:'exit'};render();break;
  case 'filters':case 'beauty':case 'about':case 'gallery':case 'vlog':dispatch({type:'SHEET',value:action});break;
  }
 });
@@ -2463,8 +2570,12 @@ document.addEventListener('keydown',event=>{
 // Do not keep the user's camera active after they leave the page.
 window.addEventListener('pagehide',()=>{stageToken++;camera.stop();clearInterval(stageInterval);clearInterval(alignInterval);clearInterval(countdownInterval);clearInterval(liveInterval);state={...state,stage:state.applied?'ready':'idle',progress:0,alignment:0,countdown:null,live:false,sheet:null};render();});
 render();
+camera.start().then(ok=>{if(!ok&&!state.sheet)dispatch({type:'SHEET',value:'source'});});
+window.addEventListener('pagehide',()=>motion.stop());
+document.addEventListener('visibilitychange',()=>{motion.reset();motionHeldAt=0;});
 // 首屏先出画面；其余阶段在空闲时预热，后续自动跳转就不必再等资源了。
 warmStages(state.stage,state);
+
 
 
 })();
