@@ -2228,7 +2228,15 @@ function createCameraController({video,onChange,environment=globalThis}) {
    request.then(result=>{if(id!==requestId)result.getTracks().forEach(t=>t.stop());},()=>{});
    const result=await Promise.race([request,new Promise((_,reject)=>{timeout=setTimeout(()=>reject(new Error('CameraTimeout')),TIMING.cameraTimeout);})]);
    if(id!==requestId){result.getTracks().forEach(t=>t.stop());return false;}
-   stream=result;video.srcObject=stream;await video.play();
+   stream=result;
+   const track=stream.getVideoTracks()[0],range=track?.getCapabilities?.().zoom;
+   // Request 1× only where the device advertises it; unsupported controls must
+   // never prevent camera startup. Portrait output and optical zoom are separate.
+   if(range&&range.min<=1&&range.max>=1&&track.applyConstraints){
+    try{await track.applyConstraints({advanced:[{zoom:1}]});}catch{}
+   }
+   if(id!==requestId){result.getTracks().forEach(t=>t.stop());return false;}
+   video.srcObject=stream;await video.play();
    if(id!==requestId){result.getTracks().forEach(t=>t.stop());return false;}
    stream.getVideoTracks().forEach(track=>track.addEventListener('ended',()=>{if(id===requestId)stop('相机已断开，已返回预置画面。');}));
    emit({source:'camera',pending:false,mirrored:facing==='user',message:'相机已启用。画面仅在本地使用，不会上传。'});return true;
@@ -2244,12 +2252,12 @@ function createCameraController({video,onChange,environment=globalThis}) {
 }
 
 /** Capture only the actual viewfinder; composition guides are not burned into the photo. */
-async function capturePhoto({source,viewport,filter='none',mirrored=false,zoom=1,renderRect=null}) {
+async function capturePhoto({source,viewport,filter='none',mirrored=false,zoom=1,renderRect=null,preserveSourceAspect=false}) {
  if(source instanceof HTMLImageElement&&!source.complete)await source.decode();
  const sw=source.videoWidth||source.naturalWidth,sh=source.videoHeight||source.naturalHeight;
  if(!sw||!sh)throw new Error('画面尚未就绪，请稍后重试。');
  const canvas=document.createElement('canvas');
- const ratio=viewport.width/viewport.height;
+ const ratio=preserveSourceAspect?sw/sh:viewport.width/viewport.height;
  canvas.width=Math.min(1080,sw);canvas.height=Math.round(canvas.width/ratio);
  const ctx=canvas.getContext('2d');if(!ctx)throw new Error('当前浏览器不支持照片生成。');
  const scale=Math.max(canvas.width/sw,canvas.height/sh)*zoom;

@@ -1,10 +1,10 @@
 /** Capture only the actual viewfinder; composition guides are not burned into the photo. */
-export async function capturePhoto({source,viewport,filter='none',mirrored=false,zoom=1,renderRect=null}) {
+export async function capturePhoto({source,viewport,filter='none',mirrored=false,zoom=1,renderRect=null,preserveSourceAspect=false}) {
  if(source instanceof HTMLImageElement&&!source.complete)await source.decode();
  const sw=source.videoWidth||source.naturalWidth,sh=source.videoHeight||source.naturalHeight;
  if(!sw||!sh)throw new Error('画面尚未就绪，请稍后重试。');
  const canvas=document.createElement('canvas');
- const ratio=viewport.width/viewport.height;
+ const ratio=preserveSourceAspect?sw/sh:viewport.width/viewport.height;
  canvas.width=Math.min(1080,sw);canvas.height=Math.round(canvas.width/ratio);
  const ctx=canvas.getContext('2d');if(!ctx)throw new Error('当前浏览器不支持照片生成。');
  const scale=Math.max(canvas.width/sw,canvas.height/sh)*zoom;

@@ -21,7 +21,15 @@ export function createCameraController({video,onChange,environment=globalThis}) 
    request.then(result=>{if(id!==requestId)result.getTracks().forEach(t=>t.stop());},()=>{});
    const result=await Promise.race([request,new Promise((_,reject)=>{timeout=setTimeout(()=>reject(new Error('CameraTimeout')),TIMING.cameraTimeout);})]);
    if(id!==requestId){result.getTracks().forEach(t=>t.stop());return false;}
-   stream=result;video.srcObject=stream;await video.play();
+   stream=result;
+   const track=stream.getVideoTracks()[0],range=track?.getCapabilities?.().zoom;
+   // Request 1× only where the device advertises it; unsupported controls must
+   // never prevent camera startup. Portrait output and optical zoom are separate.
+   if(range&&range.min<=1&&range.max>=1&&track.applyConstraints){
+    try{await track.applyConstraints({advanced:[{zoom:1}]});}catch{}
+   }
+   if(id!==requestId){result.getTracks().forEach(t=>t.stop());return false;}
+   video.srcObject=stream;await video.play();
    if(id!==requestId){result.getTracks().forEach(t=>t.stop());return false;}
    stream.getVideoTracks().forEach(track=>track.addEventListener('ended',()=>{if(id===requestId)stop('相机已断开，已返回预置画面。');}));
    emit({source:'camera',pending:false,mirrored:facing==='user',message:'相机已启用。画面仅在本地使用，不会上传。'});return true;
