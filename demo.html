@@ -116,6 +116,10 @@ body {
   transition: filter .2s, transform 1.2s;
 }
 .scene.generated-scene { transform: scale(1.48); }
+#camera-video.camera-video {
+  inset:0;width:100%;height:100%;object-fit:cover;object-position:center;
+  transition:filter .2s; /* Mirror switches immediately; never animate a stretched frame. */
+}
 .design-box {
   display: block;
   position: absolute;
@@ -314,6 +318,7 @@ body {
 .photo-editor .photo-result{position:absolute;left:0;top:11%;width:100%;height:70%;object-fit:contain;background:#1a191e;z-index:1}
 .photo-editor>button{background:transparent;border:0;min-width:44px;min-height:44px;z-index:3;padding:0}
 .photo-editor>button:active{background:#ffffff18}
+.photo-editor .photo-thumbnail{position:absolute;z-index:2;object-fit:cover;border-radius:3px;pointer-events:none}
 </style><script defer src="./offline.js"></script>
 
 </head>

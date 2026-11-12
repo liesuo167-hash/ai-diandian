@@ -196,6 +196,9 @@ export function relativeRect(rect,parent) {
  return {...rect,x:rect.x-parent.x,y:rect.y-parent.y};
 }
 export function installCameraLayout(app) {
+ // Live video belongs to the viewport, never to the oversized Figma photo crop.
+ const liveVideo=document.querySelector('#camera-video');
+ document.querySelector('#viewfinder')?.append(liveVideo);
  const design=CAMERA_DESIGN;
  const setRect=(element,rect)=>{if(element)element.setAttribute('style',designStyle(rect));};
  let currentDesign;
@@ -204,7 +207,7 @@ export function installCameraLayout(app) {
   setRect(document.querySelector('#scene-frame-outer'),next.frames.outer);
   setRect(document.querySelector('#scene-frame-inner'),relativeRect(next.frames.inner,next.frames.outer));
   const imageRect=relativeRect(next.frames.background,next.frames.inner);
-  setRect(document.querySelector('#scene'),imageRect);setRect(document.querySelector('#camera-video'),imageRect);
+  setRect(document.querySelector('#scene'),imageRect);
  };
  setStage('idle');
  const update=()=>{

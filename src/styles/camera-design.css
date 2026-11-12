@@ -50,6 +50,10 @@ body {
   transition: filter .2s, transform 1.2s;
 }
 .scene.generated-scene { transform: scale(1.48); }
+#camera-video.camera-video {
+  inset:0;width:100%;height:100%;object-fit:cover;object-position:center;
+  transition:filter .2s; /* Mirror switches immediately; never animate a stretched frame. */
+}
 .design-box {
   display: block;
   position: absolute;
