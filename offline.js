@@ -2206,6 +2206,21 @@ function renderSheet(name,s,media,photos) {
 }
 
 
+/** Device labels are hints, not calibrated focal lengths. Unknown/numbered
+ * Android cameras are deliberately left to the browser instead of guessed. */
+function preferredRearCamera(devices){
+ const candidates=devices.filter(d=>d.kind==='videoinput'&&d.deviceId).map(d=>{
+  const label=d.label||'';
+  if(/ultra|超广|超廣|tele|长焦|長焦|macro|微距|front|前置|前置|dual|triple|双摄|三摄/i.test(label))return {device:d,score:0};
+  const rear=/back|rear|后置|後置|背面/i.test(label);
+  const main=/main|primary|主摄|主攝/i.test(label);
+  const wide=/wide|广角|廣角/i.test(label);
+  const generic=/^(back|rear) camera$|^(后置|後置|背面)(相机|相機|摄像头|攝像頭)$|^camera back$/i.test(label.trim());
+  return {device:d,score:main?4:rear&&wide?3:generic?2:0};
+ }).filter(c=>c.score>0).sort((a,b)=>b.score-a.score);
+ if(!candidates.length||candidates[1]?.score===candidates[0].score)return null;
+ return candidates[0].device;
+}
 /** Browser API boundary. Injectable media APIs allow denial/timeout tests without a device. */
 function createCameraController({video,onChange,environment=globalThis}) {
  let stream=null,requestId=0,facing='environment';
@@ -2223,12 +2238,32 @@ function createCameraController({video,onChange,environment=globalThis}) {
   emit({source:'demo',pending:true,message:'正在请求相机授权…也可以关闭弹层继续使用预置画面。'});
   let timeout;
   try {
-   const request=environment.navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:facing},width:{ideal:1080},height:{ideal:1920}},audio:false});
+   const base={facingMode:{ideal:facing},width:{ideal:1080},height:{ideal:1920}};
+   const acquire=async constraints=>{
+   let expired=false;
+   const request=environment.navigator.mediaDevices.getUserMedia({video:constraints,audio:false});
    // Permission prompts can resolve after timeout/cancel. Late streams must be stopped.
-   request.then(result=>{if(id!==requestId)result.getTracks().forEach(t=>t.stop());},()=>{});
-   const result=await Promise.race([request,new Promise((_,reject)=>{timeout=setTimeout(()=>reject(new Error('CameraTimeout')),TIMING.cameraTimeout);})]);
+   request.then(result=>{if(expired||id!==requestId)result.getTracks().forEach(t=>t.stop());},()=>{});
+   try{return await Promise.race([request,new Promise((_,reject)=>{timeout=setTimeout(()=>{expired=true;reject(new Error('CameraTimeout'));},TIMING.cameraTimeout);})]);}finally{clearTimeout(timeout);}
+   };
+   let result=await acquire(base);
    if(id!==requestId){result.getTracks().forEach(t=>t.stop());return false;}
    stream=result;
+   if(facing==='environment'&&environment.navigator.mediaDevices.enumerateDevices){
+    let preferred;
+    let enumerationTimeout;
+    try{preferred=preferredRearCamera(await Promise.race([environment.navigator.mediaDevices.enumerateDevices(),new Promise(resolve=>{enumerationTimeout=setTimeout(()=>resolve([]),1500);})]));}catch{}finally{clearTimeout(enumerationTimeout);}
+    if(id!==requestId)return false;
+    const active=stream.getVideoTracks()[0]?.getSettings?.().deviceId;
+    if(preferred&&preferred.deviceId!==active){
+     // iOS may require releasing the previous camera before selecting a lens.
+     stopTracks();
+     try{result=await acquire({deviceId:{exact:preferred.deviceId},width:base.width,height:base.height});}
+     catch(error){if(id!==requestId)return false;result=await acquire(base);}
+     if(id!==requestId){result.getTracks().forEach(t=>t.stop());return false;}
+     stream=result;
+    }
+   }
    const track=stream.getVideoTracks()[0],range=track?.getCapabilities?.().zoom;
    // Request 1× only where the device advertises it; unsupported controls must
    // never prevent camera startup. Portrait output and optical zoom are separate.
@@ -2239,7 +2274,7 @@ function createCameraController({video,onChange,environment=globalThis}) {
    video.srcObject=stream;await video.play();
    if(id!==requestId){result.getTracks().forEach(t=>t.stop());return false;}
    stream.getVideoTracks().forEach(track=>track.addEventListener('ended',()=>{if(id===requestId)stop('相机已断开，已返回预置画面。');}));
-   emit({source:'camera',pending:false,mirrored:facing==='user',message:'相机已启用。画面仅在本地使用，不会上传。'});return true;
+   emit({source:'camera',pending:false,mirrored:facing==='user',message:'相机已启用。优先使用可识别的后置主摄；实际镜头及缩放能力由浏览器提供。画面仅在本地使用。'});return true;
   }catch(error){
    if(id!==requestId)return false;
    requestId++;stopTracks();
